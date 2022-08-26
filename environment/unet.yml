@@ -1,4 +1,4 @@
-name: unet
+name: UNet
 channels:
   - pytorch
   - conda-forge
