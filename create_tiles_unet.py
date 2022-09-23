@@ -353,8 +353,14 @@ def split_raster(path_to_raster=None,
 
         no_data_values = np.sum(numpy_image_mask == nodata_mask)
         no_data_percentage = round((no_data_values / len(numpy_image_mask[0].flatten())) * 100)
+        no_data_values_image = np.sum(numpy_image == nodata)
+        no_data_percentage_image = round((no_data_values_image / len(numpy_image[0].flatten())) * 100)
+
         if no_data_values:
             print(f'{no_data_values} no-data-pixels found in mask ({no_data_percentage}%), setting to 0.')
+        if no_data_values_image:
+            print(f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting to 0.')
+
         for b in range(bands_img):
             numpy_image[b, :, :][numpy_image_mask[0, :, :] == nodata_mask[0]] = 0
         for b in range(numpy_image_mask.shape[0]):
@@ -371,7 +377,7 @@ def split_raster(path_to_raster=None,
     geotrans = (out_l, out_w, out_o1, out_t, out_o2, out_h)
     geoproj = gdal.Open(path_to_raster).GetProjection()
 
-    # Check that patch size is greater than image size
+    # Check if patch size is greater than image size
     height = numpy_image2.shape[0]
     width = numpy_image2.shape[1]
 

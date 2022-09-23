@@ -71,6 +71,16 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
 
         else:
+            if regression:
+                pass
+            elif all_classes:
+                pass
+            elif specific_class is None:
+                # for decoded argmax value
+                class_lst = class_lst.argmax(axis=0) + 1
+            else:
+                # for probabilities of specific class [1] -> klasse 1
+                class_lst = class_lst[specific_class]
             img_ds_proj = gdal.Open(str(tiles[i]))
             geotrans = img_ds_proj.GetGeoTransform()
             geoproj = img_ds_proj.GetProjection()

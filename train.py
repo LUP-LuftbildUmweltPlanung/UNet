@@ -208,9 +208,6 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     plt.figure(figsize=(7, 7))
     plt.plot(train_loss, label='Training')
     plt.plot(valid_loss, label='Validation')
-    plt.xlabel('Episode')
-    plt.ylabel('Loss')
-    plt.ylim(0, 1.1)
 
     if monitor not in ['train_loss', 'valid_loss']:
         monitor = hist['train_loss'].tolist()
@@ -219,10 +216,10 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         plt.ylim(0, np.max(monitor) * 1.3)
     else:
         annot_min(valid_loss)
+        plt.ylim(0, 1.1)
 
-    plt.plot(train_loss, label='Training')
-    plt.plot(valid_loss, label='Validation')
-
+    plt.xlabel('Episode')
+    plt.ylabel('Loss')
     plt.title('Model Training Overview')
     plt.legend()
     plt.savefig(str(hist_path).rsplit('.', 1)[0] + '.png', dpi=200)
