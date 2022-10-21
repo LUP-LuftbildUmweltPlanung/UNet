@@ -14,7 +14,7 @@ from fastai.vision.learner import model_meta, create_body
 
 from fastai.layers import NormType
 from fastai.learner import Learner
-from fastai.losses import MSELossFlat, CrossEntropyLossFlat
+from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat
 from fastai.metrics import rmse, R2Score, DiceMulti, foreground_acc
 from fastai.optimizer import Adam
 

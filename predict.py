@@ -3,6 +3,7 @@ import os
 import warnings
 import numpy as np
 import torch
+import time
 
 from pathlib import Path
 from osgeo import gdal
@@ -35,19 +36,24 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         predictions_for_merge_size = 0
         geotrans_for_merge = []
 
-    for i in range(len(tiles)):
-        print(tiles[i])
+    t = time.localtime()
+    current_time = time.strftime("%H:%M:%S", t)
+    print(f'Started at: {current_time}')
 
+    for i in range(len(tiles)):
+        print(f'Current progress: {i}/{len(tiles)}')
         tile_preds = learn.predict(Path(tiles[i]), with_input=False)
         # if single class creates issues try: class_lst = tile_preds[1]
         class_lst = []
         if regression:
             for cl in range(len(tile_preds[1])):
                 class_lst.append(tile_preds[1][cl])
+                tile_preds[1][cl] = 0
         else:
             for cl in range(len(tile_preds[2])):
                 if cl != 0:
                     class_lst.append(tile_preds[2][cl])
+                    tile_preds[1][cl] = 0
 
         class_lst = torch.stack(class_lst)
 
@@ -71,6 +77,16 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
 
         else:
+            if regression:
+                pass
+            elif all_classes:
+                pass
+            elif specific_class is None:
+                # for decoded argmax value
+                class_lst = class_lst.argmax(axis=0) + 1
+            else:
+                # for probabilities of specific class [1] -> klasse 1
+                class_lst = class_lst[specific_class]
             img_ds_proj = gdal.Open(str(tiles[i]))
             geotrans = img_ds_proj.GetGeoTransform()
             geoproj = img_ds_proj.GetProjection()
@@ -116,7 +132,8 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         print(f'True merged raster size: {merged_raster.nbytes / (1024 ** 2): .1f}MB.')
         merge_counter = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length),
                                  dtype=np.int8)
-        for pred, geotrans in zip(predictions_for_merge, geotrans_for_merge):
+        for i, (pred, geotrans) in enumerate(zip(predictions_for_merge, geotrans_for_merge)):
+            print(i)
             upleft_x = round((geotrans[0] - upleft_x_full) / geotrans[2])
             upleft_y = round((geotrans[3] - upleft_y_full) / geotrans[5])
             lowright_x = round((geotrans[0] + geotrans[1] * geotrans[2] - upleft_x_full) / geotrans[2])
@@ -125,11 +142,14 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             merged_raster[:, upleft_y:lowright_y, upleft_x:lowright_x] += pred
             merge_counter[:, upleft_y:lowright_y, upleft_x:lowright_x] += np.ones_like(pred, dtype=np.int8)
 
+            predictions_for_merge[i] = []
+
         if regression:
             merged_raster = merged_raster[0]
             merge_counter = merge_counter[0]
             merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
         else:
+            merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
             if all_classes:
                 pass
             elif specific_class is None:

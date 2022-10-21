@@ -78,7 +78,6 @@ if Train:
 
     # Get datatype of training data
     dtype = get_datatype(data_path)
-
     # Data Block for Reference Storage
     db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
                            transforms=transforms)
