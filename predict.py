@@ -49,12 +49,10 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         if regression:
             for cl in range(len(tile_preds[1])):
                 class_lst.append(tile_preds[1][cl])
-                tile_preds[1][cl] = 0
         else:
             for cl in range(len(tile_preds[2])):
                 if cl != 0 or cl != 6:
                     class_lst.append(tile_preds[2][cl])
-                    tile_preds[1][cl] = 0
         class_lst[6]=torch.zeros(class_lst[6].shape)
         print(class_lst[6])
         class_lst = torch.stack(class_lst)
