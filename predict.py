@@ -30,6 +30,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         os.makedirs(output_folder)
     tiles = glob.glob(str(path) + "\\*.tif")
 
+    # create necessary variables to track merge
     if merge:
         geoproj_for_merge = None
         predictions_for_merge = []
@@ -58,6 +59,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         print(class_lst[6])
         class_lst = torch.stack(class_lst)
 
+        # go through all predictions and store their physical coordinates and check, that all have the same projection
         if merge:
             img_ds_proj = gdal.Open(str(tiles[i]))
 
@@ -107,12 +109,15 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans, geoproj)
 
     if merge:
-        #  remember: lower left to upper right
+        # go through the information for all tiles, find upper left most corner and lower right most corner
+        # --> these define the extend of the final output
+        # remember: lower left to upper right
         geotrans_for_merge = np.array(geotrans_for_merge)
         upleft_x_full = np.min(geotrans_for_merge[:, 0])
         upleft_y_full = np.max(geotrans_for_merge[:, 3])
         xmax_raster = np.argmax(geotrans_for_merge[:, 0])
         ymin_raster = np.argmin(geotrans_for_merge[:, 3])
+        # calculate coordinate from array index
         lowright_x_full = np.max(geotrans_for_merge[:, 0]) + geotrans_for_merge[
             xmax_raster, 1] * geotrans_for_merge[xmax_raster, 2]
         lowright_y_full = np.min(geotrans_for_merge[:, 3]) + geotrans_for_merge[
@@ -129,27 +134,38 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         else:
             dty = np.float32
 
+        # create array to contain raster data
         merged_raster = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length), dtype=dty)
         print(f'True merged raster size: {merged_raster.nbytes / (1024 ** 2): .1f}MB.')
+        # create array to contain if pixel is the sum of 1, 2, or 4 tiles
+        # (1 - single tile, 2 - two overlapping edges, 4 - overlapping corners)
         merge_counter = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length),
                                  dtype=np.int8)
+
+        # for each image
         for i, (pred, geotrans) in enumerate(zip(predictions_for_merge, geotrans_for_merge)):
-            #print(i)
+            # find location
             upleft_x = round((geotrans[0] - upleft_x_full) / geotrans[2])
             upleft_y = round((geotrans[3] - upleft_y_full) / geotrans[5])
             lowright_x = round((geotrans[0] + geotrans[1] * geotrans[2] - upleft_x_full) / geotrans[2])
             lowright_y = round((geotrans[3] + geotrans[4] * geotrans[5] - upleft_y_full) / geotrans[5])
 
+            # place raster
             merged_raster[:, upleft_y:lowright_y, upleft_x:lowright_x] += pred
+            # increase counter for placed rasters
             merge_counter[:, upleft_y:lowright_y, upleft_x:lowright_x] += np.ones_like(pred, dtype=np.int8)
 
+            # delete tile to use less space
             predictions_for_merge[i] = []
 
         if regression:
             merged_raster = merged_raster[0]
             merge_counter = merge_counter[0]
+
+            # divide raster by counter to turn overlaps into realistic values
             merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
         else:
+            # divide raster by counter to turn overlaps into realistic values
             merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
             if all_classes:
                 pass
