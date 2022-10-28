@@ -51,10 +51,11 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
                 tile_preds[1][cl] = 0
         else:
             for cl in range(len(tile_preds[2])):
-                if cl != 0:
+                if cl != 0 or cl != 6:
                     class_lst.append(tile_preds[2][cl])
                     tile_preds[1][cl] = 0
-
+        class_lst[6]=torch.zeros(class_lst[6].shape)
+        print(class_lst[6])
         class_lst = torch.stack(class_lst)
 
         if merge:
@@ -133,7 +134,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         merge_counter = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length),
                                  dtype=np.int8)
         for i, (pred, geotrans) in enumerate(zip(predictions_for_merge, geotrans_for_merge)):
-            print(i)
+            #print(i)
             upleft_x = round((geotrans[0] - upleft_x_full) / geotrans[2])
             upleft_y = round((geotrans[3] - upleft_y_full) / geotrans[5])
             lowright_x = round((geotrans[0] + geotrans[1] * geotrans[2] - upleft_x_full) / geotrans[2])
