@@ -369,6 +369,7 @@ def split_raster(path_to_raster=None,
             numpy_image_mask[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0
         numpy_image_mask2 = np.moveaxis(numpy_image_mask, 0, 2)
 
+    #numpy_image[0, :, :][np.logical_and(numpy_image[1, :, :] == 0, numpy_image[2, :, :] == 0)] = 0
     for b in range(bands_img):
         numpy_image[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0
 
