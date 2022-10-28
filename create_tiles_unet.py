@@ -378,7 +378,7 @@ def split_raster(path_to_raster=None,
     geotrans = (out_l, out_w, out_o1, out_t, out_o2, out_h)
     geoproj = gdal.Open(path_to_raster).GetProjection()
 
-    # Check that patch size is greater than image size
+    # Check if patch size is greater than image size
     height = numpy_image2.shape[0]
     width = numpy_image2.shape[1]
 
