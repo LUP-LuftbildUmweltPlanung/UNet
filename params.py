@@ -6,40 +6,40 @@ from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat
 
 # PARAMETERS
 Create_tiles = False
-Train = True
+Train = False
 Predict = True
 
 # CREATE TILES
 # if using without mask, set mask_path = None
-image_path = r"Z:\2020_TreeSatAI\Validation_Zwischenbericht\NS_vali\+Abgabe\img_tiles\526_5728.tif"
-#mask_path = r"T:\2022_UrbanGreenEye\Modelle\Gruendach\Daten\belaubt\Pilotgebiet\class_aoi_adj.tif"
-base_dir = r"Z:\2020_TreeSatAI\Validation_Zwischenbericht\NS_vali\+Abgabe\img_tiles\tiles"
-mask_path = None
+image_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\output_stack_no5.tif"
+mask_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\maski_aoi.tif"
+base_dir = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\tiles"
+#mask_path = None
 
 patch_size = 400
-patch_overlap = 0.1
-#split = [0.8, 0.2]
-split = [1]
+patch_overlap = 0.2
+split = [0.6, 0.4]
+#split = [1]
 
 # TRAINING
 # if using on created tiles, set data_path = base_dir
-data_path = r"C:\DeepLearning_Local\+Projekte\SyntheticImageCreation\Results\no_bodo_tc2_tc3\+combined"
-model_path = r"C:\DeepLearning_Local\+Projekte\LuBi_BaumartSegementation\Results\Prediction Models\Unet\test.pkl"
+data_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\tiles"
+model_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\test.pkl"
 existing_model = None
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 2
+EPOCHS = 5
 LEARNING_RATE = 0.005
 enable_regression = False
 visualize_data_example = False
 # only relevant for classification
-#CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser']
+CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser']
 #CODES = ['background', 'keingruendach', 'gruendach']
-CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser','assf','assf','assf','assf','assf']
+#CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser','assf','assf','assf','assf','assf']
 CLASS_WEIGHTS = "even"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 
 # PREDICTION
 predict_path = r"Z:\2020_TreeSatAI\Validation_Zwischenbericht\NS_vali\+Abgabe\img_tiles\tiles\img_tiles"
-predict_model = r"C:\DeepLearning_Local\+Projekte\LuBi_BaumartSegementation\Results\Prediction Models\Unet\test.pkl"
+predict_model = r"C:\DeepLearning_Local\+Projekte\LuBi_BaumartSegementation\Results\Prediction Models\Unet\tc2tc3_nobodo_new_losstrack80.pkl"
 merge = True
 regression = False
 # CONFIG END
