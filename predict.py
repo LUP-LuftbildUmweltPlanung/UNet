@@ -53,7 +53,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             for cl in range(len(tile_preds[2])):
                 if cl != 0:
                     class_lst.append(tile_preds[2][cl])
-                    
+
         class_lst = torch.stack(class_lst)
 
         # go through all predictions and store their physical coordinates and check, that all have the same projection
