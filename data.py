@@ -61,7 +61,7 @@ def get_lbl_fn(img_fn: Path):
 
 class Int16ToFloatTensor(DisplayedTransform):
     """Transform image to float tensor, optionally dividing by 255 (e.g. for images)."""
-    def __init__(self, div=65535., div_mask=1): store_attr()
+    def __init__(self, div=256., div_mask=1): store_attr()
 
     def encodes(self, o: TensorImage): return o.float().div_(self.div)
 
