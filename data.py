@@ -101,7 +101,6 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
         blocks = (ImgBlock, RegressionBlock())
     else:
         blocks = (ImgBlock, MaskBlock(codes))  # Independent variable is Image, dependent variable is Mask
-
     def valid_split(item, valid_scenes=valid_scenes):
         """XXXXXXXXX"""
         scene = item.parent.parent.name

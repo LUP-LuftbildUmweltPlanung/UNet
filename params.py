@@ -11,36 +11,36 @@ Predict = True
 
 # CREATE TILES
 # if using without mask, set mask_path = None
-image_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\output_stack_no5.tif"
-mask_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\maski_aoi.tif"
-base_dir = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\tiles"
+image_path = r"Z:\B_CNN_DeepLearning\+Projekte\LuBi_GrünvolumenLandnutzungsklassifikation\Daten\berlin_rgbi_ndom_mask_stack2.tif"
+mask_path = r"Z:\B_CNN_DeepLearning\+Projekte\LuBi_GrünvolumenLandnutzungsklassifikation\Daten\berlin_klassifikation_50cm_snap_rgbi_output_mask2.tif"
+base_dir = r"Z:\B_CNN_DeepLearning\+Projekte\LuBi_GrünvolumenLandnutzungsklassifikation\Daten\tiles2"
 #mask_path = None
 
 patch_size = 400
-patch_overlap = 0.2
-split = [0.6, 0.4]
+patch_overlap = 0
+split = [0.7, 0.3]
 #split = [1]
 
 # TRAINING
 # if using on created tiles, set data_path = base_dir
-data_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\tiles"
-model_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\test.pkl"
+data_path = r"Z:\B_CNN_DeepLearning\+Projekte\LuBi_GrünvolumenLandnutzungsklassifikation\Daten\tiles_combined"
+model_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\gv_luc_35ep.pkl"
 existing_model = None
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 5
+EPOCHS = 35
 LEARNING_RATE = 0.005
 enable_regression = False
 visualize_data_example = False
 # only relevant for classification
-CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser']
+CODES = ['background', 'class1','class2','class3','class4','class5','class6','class7']
 #CODES = ['background', 'keingruendach', 'gruendach']
-#CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser','assf','assf','assf','assf','assf']
-CLASS_WEIGHTS = "even"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
-
+#CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser']
+#CLASS_WEIGHTS = "even"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
+CLASS_WEIGHTS = [0,0.33,0,0,0.33,0,0,0.34]
 # PREDICTION
-predict_path = r"Z:\2020_TreeSatAI\Validation_Zwischenbericht\NS_vali\+Abgabe\img_tiles\tiles\img_tiles"
-predict_model = r"C:\DeepLearning_Local\+Projekte\LuBi_BaumartSegementation\Results\Prediction Models\Unet\tc2tc3_nobodo_new_losstrack80.pkl"
-merge = True
+predict_path = r"\\QNAP2\projekte2\B_CNN_DeepLearning\+Projekte\LuBi_GrünvolumenLandnutzungsklassifikation\Daten\tiles_combined\vali\img_tiles"
+predict_model = r"C:\DeepLearning_Local\temp\Test_Deeplearning\Unet\gv_luc_35ep.pkl"
+merge = False
 regression = False
 # CONFIG END
 
