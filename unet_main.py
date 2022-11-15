@@ -10,6 +10,7 @@ import warnings
 
 import numpy as np
 import torch
+import shutil
 
 from pathlib import Path
 
@@ -42,7 +43,6 @@ else:
     all_classes = False
     specific_class = None
     enable_transforms = False
-    quantile_stretch = False
     large_file = False
     max_empty = 0.9
     ARCHITECTURE = xresnet34
@@ -61,7 +61,6 @@ if Create_tiles:
         patch_size=patch_size,
         patch_overlap=patch_overlap,
         base_dir=base_dir,
-        quantile_stretch=quantile_stretch,
         split=split,
         max_empty=max_empty
     )
@@ -126,16 +125,24 @@ if Train:
             learn.loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
         # alternative: learn.loss_func = Smoothl1
 
-            if LR_FINDER is not None:
-                lr_max = find_lr(learn, LR_FINDER)
-                print(f'Optimized learning rate: {lr_max}')
+        if enable_regression:
+            if loss_func is None:
+                learn.loss_func = MSELossFlat(axis=1)
+        else:
+            if loss_func is None:
+                learn.loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
+
+        if LR_FINDER is not None:
+            LEARNING_RATE = find_lr(learn, LR_FINDER)
+            print(f'Optimized learning rate: {LEARNING_RATE}')
 
         learn.unfreeze()
         learn.fit_one_cycle(EPOCHS, lr_max=slice(LEARNING_RATE / ENCODER_FACTOR, LEARNING_RATE))
-        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
-        os.rename(learn.path / learn.csv_logger.fname, hist_path)
-        learn.remove_cb(CSVLogger)
         learn.export(model_path)
+        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
+        shutil.move(learn.path / learn.csv_logger.fname, hist_path)
+        learn.remove_cb(CSVLogger)
+
 
 if Predict:
     learn = load_learner(Path(predict_model))

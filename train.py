@@ -3,6 +3,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import shutil
 
 from torch import nn, Tensor
 from pathlib import Path
@@ -161,10 +162,12 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     else:
         if loss_func is None:
             loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
-        metrics = [DiceMulti(), foreground_acc]
+        metrics = [DiceMulti()]
 
-    if monitor is None:
-        monitor = 'valid_loss'
+    if regression and monitor is None:
+        monitor = 'r2_score'
+    else:
+        monitor = 'dice_multi'
 
     if monitor in ['train_loss', 'valid_loss']:
         comp = np.less
@@ -195,10 +198,10 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
     # plot loss
     learn.recorder.plot_loss()
-
     # move history
     hist_path = Path(str(path).rsplit('.', 1)[0] + "_history.csv")
-    os.rename(learn.path / learn.csv_logger.fname, hist_path)
+    #os.rename(learn.path / learn.csv_logger.fname, hist_path)
+    shutil.move(learn.path / learn.csv_logger.fname, hist_path)
     learn.remove_cb(CSVLogger)
 
     hist = pd.read_csv(hist_path, header=0, index_col=None)

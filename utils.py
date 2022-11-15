@@ -178,15 +178,16 @@ def Smoothl1(*args, axis=1, floatify=True, **kwargs):
 
 def find_lr(learn, finder):
     """Finds the suggested maximum learning rate using a fastai learning rate finder"""
-    lrs = learn.lr_find(suggest_funcs=(minimum, steep, valley, slide))
+    lrs = learn.lr_find(suggest_funcs=(minimum, steep, valley, slide),show_plot=True)
+    plt.show()
     if finder == 'valley':
         lr_max = lrs.valley
-    elif finder == 'valley':
-        lr_max = lrs.valley
-    elif finder == 'valley':
-        lr_max = lrs.valley
-    elif finder == 'valley':
-        lr_max = lrs.valley
+    elif finder == 'slide':
+        lr_max = lrs.slide
+    elif finder == 'steep':
+        lr_max = lrs.steep
+    elif finder == 'minimum':
+        lr_max = lrs.minimum
     else:
         lr_max = lrs.valley
         warnings.warn("Learning rate finder parameter not recognised (minimum, steep, valley, slide, None)."

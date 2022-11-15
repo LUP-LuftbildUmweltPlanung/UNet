@@ -162,7 +162,7 @@ def create_train_test_split(path, split=None):
 
 
 def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geotrans, geoproj, raster_dtype,
-              mask_dtype, quantile_stretch=False):
+              mask_dtype):
     """
     Save window crop as image file to be read by PIL. Filename should match the image_name + window index.
 
@@ -211,20 +211,7 @@ def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geo
         [xmin * geotrans[1] + geotrans[0], geotrans[1], 0, geotrans[3] - ymax * geotrans[1], 0, geotrans[5], ])
     out_ds.SetProjection(geoproj)
     for i in range(bands_img):
-
-        if quantile_stretch:
-            max_val = np.quantile(crop[:, :, i], 0.99)
-            if max_val != 0:
-                factor = raster_dtype_factor / max_val
-                cr = crop[:, :, i] * factor
-                out_ds.GetRasterBand(i + 1).WriteArray(cr)
-            else:
-                cr = crop[:, :, i]
-                out_ds.GetRasterBand(i + 1).WriteArray(cr)
-
-
-        else:
-            out_ds.GetRasterBand(i + 1).WriteArray(crop[:, :, i])
+        out_ds.GetRasterBand(i + 1).WriteArray(crop[:, :, i])
 
     out_ds.FlushCache()
     del out_ds
@@ -250,9 +237,8 @@ def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geo
 def split_raster(path_to_raster=None,
                  path_to_mask=None,
                  base_dir=".",
-                 patch_size=255,
+                 patch_size=400,
                  patch_overlap=0.20,
-                 quantile_stretch=False,
                  split=None,
                  max_empty=0.9):
     """
@@ -357,9 +343,9 @@ def split_raster(path_to_raster=None,
         no_data_percentage_image = round((no_data_values_image / len(numpy_image[0].flatten())) * 100)
 
         if no_data_values:
-            print(f'{no_data_values} no-data-pixels found in mask ({no_data_percentage}%), setting to 0.')
+            print(f'{no_data_values} no-data-pixels found in mask ({no_data_percentage}%), setting parts of image to 0.')
         if no_data_values_image:
-            print(f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting to 0.')
+            print(f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting parts of mask to 0.')
 
         for b in range(bands_img):
             numpy_image[b, :, :][numpy_image_mask[0, :, :] == nodata_mask[0]] = 0
@@ -415,7 +401,7 @@ def split_raster(path_to_raster=None,
         rect = windows[index].getRect()
 
         save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geotrans, geoproj,
-                  raster_dtype, mask_dtype, quantile_stretch)
+                  raster_dtype, mask_dtype)
 
     if include_mask:
         create_train_test_split(base_dir, split=split)
