@@ -5,12 +5,12 @@ from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat
 
 # PARAMETERS
-Create_tiles = False
+Create_tiles = True
 Train = True
 Predict = False
 
 ######################################################
-#################### TRAINING ########################
+#################### CREATE TILES ####################
 ######################################################
 
 # if using without mask, set mask_path = None
