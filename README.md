@@ -28,7 +28,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 ### Executing program
 
 * set parameters in params.py
-* run main_retinanet.py
+* run main_unet.py
 
 ## Help/Known Issues
 
