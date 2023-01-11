@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import shutil
+import sys
+from params import export_model_summary
 
 from torch import nn, Tensor
 from pathlib import Path
@@ -15,7 +17,7 @@ from fastai.vision.learner import model_meta, create_body
 
 from fastai.layers import NormType
 from fastai.learner import Learner
-from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat
+from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat
 from fastai.metrics import rmse, R2Score, DiceMulti, foreground_acc
 from fastai.optimizer import Adam
 
@@ -122,11 +124,11 @@ def unet_learner_MS(dls, arch, pretrained=True,
         learn = Learner(dls=dls, model=model, loss_func=loss_func, opt_func=opt_func, lr=lr, splitter=splitter, cbs=cbs,
                         metrics=metrics, path=path, model_dir=model_dir, wd=wd, wd_bn_bias=wd_bn_bias,
                         train_bn=train_bn, moms=moms)
-    if pretrained and n_input_channels == 3:
-        learn.freeze()
-        apply_init(model[2], nn.init.kaiming_normal_)
-    else:
-        apply_init(model, nn.init.kaiming_normal_)
+    # if pretrained and n_input_channels == 3:
+    #     learn.freeze()
+    #     apply_init(model[2], nn.init.kaiming_normal_)
+    # else:
+    #     apply_init(model, nn.init.kaiming_normal_)
     return learn
 
 
@@ -154,7 +156,6 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         learn :             Unet learner now containing a trained model
     """
     weights = Tensor(class_weights).cuda()
-
     if regression:
         if loss_func is None:
             loss_func = MSELossFlat(axis=1)
@@ -166,7 +167,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
     if regression and monitor is None:
         monitor = 'r2_score'
-    else:
+    elif monitor is None:
         monitor = 'dice_multi'
 
     if monitor in ['train_loss', 'valid_loss']:
@@ -185,6 +186,16 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
                             cbs=cbs,
                             regression=regression
                             )
+
+    #save model summary
+    if export_model_summary:
+        default_stdout =sys.stdout
+        summary_path = str(path).rsplit('.', 1)[0] + "_model_summary.txt"
+        sys.stdout = open(summary_path, 'w')
+        print('Class_weights:',class_weights)
+        print(learn.summary())
+        sys.stdout.close()
+        sys.stdout = default_stdout
 
     if lr_finder is not None:
         lr = find_lr(learn, lr_finder)

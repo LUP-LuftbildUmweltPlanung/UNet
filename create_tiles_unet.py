@@ -337,9 +337,9 @@ def split_raster(path_to_raster=None,
             assert numpy_image.shape[1:] == numpy_image_mask.shape[1:], "Some issue with the adjustments"
             print(f'Done! Adjusted images new size is {numpy_image.shape[1:]}.\n')
 
-        no_data_values = np.sum(numpy_image_mask == nodata_mask)
+        no_data_values = np.sum(numpy_image_mask[0, :, :] == nodata_mask)
         no_data_percentage = round((no_data_values / len(numpy_image_mask[0].flatten())) * 100)
-        no_data_values_image = np.sum(numpy_image == nodata)
+        no_data_values_image = np.sum(numpy_image[0, :, :] == nodata[0])
         no_data_percentage_image = round((no_data_values_image / len(numpy_image[0].flatten())) * 100)
 
         if no_data_values:
@@ -348,11 +348,13 @@ def split_raster(path_to_raster=None,
             print(f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting parts of mask to 0.')
 
         for b in range(bands_img):
-            numpy_image[b, :, :][numpy_image_mask[0, :, :] == nodata_mask[0]] = 0
+            numpy_image[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0
+        for b in range(bands_img):
+            numpy_image[b, :, :][numpy_image_mask[0, :, :] == nodata_mask[0]] = 0 #!only checks first band of mask!
         for b in range(numpy_image_mask.shape[0]):
             numpy_image_mask[b, :, :][numpy_image_mask[b, :, :] == nodata_mask[b]] = 0
         for b in range(numpy_image_mask.shape[0]):
-            numpy_image_mask[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0
+            numpy_image_mask[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0 #!only checks first band of image stack for setting mask to nodata!
         numpy_image_mask2 = np.moveaxis(numpy_image_mask, 0, 2)
 
     #numpy_image[0, :, :][np.logical_and(numpy_image[1, :, :] == 0, numpy_image[2, :, :] == 0)] = 0

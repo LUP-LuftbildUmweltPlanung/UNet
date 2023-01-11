@@ -15,7 +15,6 @@ import shutil
 from pathlib import Path
 
 from fastai.learner import load_learner
-from fastai.losses import CrossEntropyLossFlat, MSELossFlat
 from fastai.callback.progress import CSVLogger
 
 from data import create_data_block
@@ -96,18 +95,20 @@ if Train:
         inputs_np = inputs.cpu().detach().numpy()
         targets_np = targets.cpu().detach().numpy()
         visualize_data(inputs_np)
+        os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
         visualize_data(targets_np)
+        os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
 
     print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
     #print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
     print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
     print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
 
+
     if enable_regression:
         print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
     else:
         print(f"Class weights: {CLASS_WEIGHTS}")
-
     if existing_model is None:
         learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
                            path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
@@ -148,3 +149,4 @@ if Predict:
     learn = load_learner(Path(predict_model))
     predict_path = Path(predict_path)
     save_predictions(learn, predict_path, regression, merge, all_classes, specific_class, large_file)
+

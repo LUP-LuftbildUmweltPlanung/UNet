@@ -2,10 +2,11 @@ from fastai.vision.models.xresnet import xresnet34
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
 from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
-from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat
+from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat
+
 
 # PARAMETERS
-Create_tiles = True
+Create_tiles = False
 Train = True
 Predict = False
 
@@ -14,41 +15,42 @@ Predict = False
 ######################################################
 
 # if using without mask, set mask_path = None
-image_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\09_11_2022\Unet_s2\berlin_composite_fullbands_16bit.tif"
-mask_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\09_11_2022\Unet_s2\berlin_gv_groundtruth_2020_10m_class.tif"
-base_dir = r"C:\DeepLearning_Local\temp\Test_Deeplearning\09_11_2022\Unet_s2\tiles_test"
+image_path = r"E:\+DeepLearning_Extern\stacks_and_masks\stacks\Leipzig\leipzig_rgbi_ndom_stack_2017.tif"
+mask_path = r"E:\+DeepLearning_Extern\versiegelung_klassifikation\Daten\daten_leipzig\versiegelung_reclass_haus\leipzig_versiegelung_2017_50cm_nachklassif.tif"
+base_dir = r"E:\+DeepLearning_Extern\versiegelung_klassifikation\Daten\tiles_nachklass_nDOM_leipzig"
 #mask_path = None
 
 patch_size = 400
 patch_overlap = 0
 split = [0.7,0.3]
-#split = [1]
+#for prediction patch_overlap = 0.2 to prevent edge artifacts and split = [1] to predict full image
+
 
 ############################################################
 #################### TRAINING ##############################
 ############################################################
 # if using on created tiles, set data_path = base_dir
-data_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\09_11_2022\Unet_s2\tiles_test"
-model_path = r"C:\DeepLearning_Local\temp\Test_Deeplearning\09_11_2022\Unet_s2\tiles_test\test.pkl"
+data_path = r"E:\+DeepLearning_Extern\versiegelung_klassifikation\Daten\tiles_leipzig"
+model_path = r"E:\+DeepLearning_Extern\versiegelung_klassifikation\Models\temp_test\versiegelung_test.pkl"
 existing_model = None
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 12
+EPOCHS = 30
 LEARNING_RATE = 0.005
-enable_regression = True
-visualize_data_example = False
+enable_regression = False
+visualize_data_example = True
+export_model_summary = True
 # only relevant for classification
-CODES = ['background', '1','2','3']
-#CODES = ['background', 'keingruendach', 'gruendach']
-#CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt','wasser']
+CODES = ['background', 'nicht_versiegelt','teilversiegelt','versiegelt', 'versiegelt_gebaeude']
 #CLASS_WEIGHTS = "even"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 CLASS_WEIGHTS = "even"
+weights = None
 
 ########################################################
 #################### PREDICTION ########################
 ########################################################
-predict_path = r"D:\GV_Berlin_Deepl_Predict\Magdeburg\tiles\img_tiles"
-predict_model = r"Z:\B_CNN_DeepLearning\+Projekte\LuBi_GrünvolumenLandnutzungsklassifikation\Results\Modelle\gv_luc_9ep_new.pkl"
-merge = True
+predict_path = r"E:\+DeepLearning_Extern\versiegelung_klassifikation\Daten\tiles_nachklass_nDOM_leipzig\vali\img_tiles"
+predict_model = r"E:\+DeepLearning_Extern\versiegelung_klassifikation\Models\versiegelung_leipzig_30ep_focalloss_weighted_lr005_04_01_22.pkl"
+merge = False
 regression = False
 # CONFIG END
 
@@ -57,16 +59,15 @@ regression = False
 #################### EXTRA PARAMTERS #######################
 ############################################################
 
-enable_extra_parameters = False  # only for experienced users
-
+enable_extra_parameters = True  # only for experienced users
 
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
-loss_func = None
+loss_func = FocalLossFlat(axis=1, weight=weights)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
-# Classification: CrossEntropyLossFlat(axis=1, weight=weights), FocalLossFlat(axis=1)
-monitor = None
+# Classification: CrossEntropyLossFlat(axis=1, weight=weights), FocalLossFlat(axis=1, weight=weights)
+monitor = 'dice_multi'
 # Regression: 'train_loss', 'valid_loss', 'r2_score'
 # Classification: 'dice_multi', 'train_loss'
 all_classes = False  # If all class predictions should be stored

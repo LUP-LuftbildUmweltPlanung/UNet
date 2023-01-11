@@ -146,6 +146,8 @@ def get_class_weights(path, tiles):
         count_classes = count_tensor[classes].item()
         class_w.append(1 / count_classes)
     class_w /= np.sum(class_w)
+    class_w_nobackg = (0.99/np.sum(class_w[1:])*class_w[1:]) #get weights without background class
+    class_w = np.concatenate((np.array([1-sum(class_w_nobackg)]),class_w_nobackg )) #create weights array with fixed background wheight
 
     return class_w
 
@@ -163,12 +165,17 @@ def visualize_data(inputs):
             axes[0, band].hist(band_data[band_data > 0], bins=255)
             axes[0, band].set_title(f'Band {band + 1}')
             axes[1, band].hist(band_data[band_data > 0], bins=255, range=(0, 1))
-        plt.show()
+        plt.suptitle('Image batch example histogram')
+        plt.savefig(Path(str(model_path).rsplit('.', 1)[0] + "_image_plot.png"))
+
+
     else:
         inputs = inputs.flatten()
         axes[0].hist(inputs, bins=255)
         axes[1].hist(inputs, bins=255, range=(0, 1))
-        plt.show()
+        plt.suptitle('Mask batch example histogram')
+        plt.savefig(Path(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png"))
+
 
 
 def Smoothl1(*args, axis=1, floatify=True, **kwargs):
@@ -179,7 +186,7 @@ def Smoothl1(*args, axis=1, floatify=True, **kwargs):
 def find_lr(learn, finder):
     """Finds the suggested maximum learning rate using a fastai learning rate finder"""
     lrs = learn.lr_find(suggest_funcs=(minimum, steep, valley, slide),show_plot=True)
-    plt.show()
+    #plt.show()
     if finder == 'valley':
         lr_max = lrs.valley
     elif finder == 'slide':
@@ -194,3 +201,6 @@ def find_lr(learn, finder):
                       " Using valley.")
 
     return lr_max
+
+
+
