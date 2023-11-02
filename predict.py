@@ -4,7 +4,7 @@ import warnings
 import numpy as np
 import torch
 import time
-
+from tqdm import tqdm
 from pathlib import Path
 from osgeo import gdal
 
@@ -40,9 +40,9 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
     t = time.localtime()
     current_time = time.strftime("%H:%M:%S", t)
     print(f'Started at: {current_time}')
-
-    for i in range(len(tiles)):
-        print(f'Current progress: {i}/{len(tiles)}')
+    #for i in range(len(tiles)):
+    for i in tqdm(range(len(tiles)), desc='Processing tiles'):
+        #print(f'Current progress: {i}/{len(tiles)}')
         tile_preds = learn.predict(Path(tiles[i]), with_input=False)
         # if single class creates issues try: class_lst = tile_preds[1]
         class_lst = []
@@ -51,8 +51,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
                 class_lst.append(tile_preds[1][cl])
         else:
             for cl in range(len(tile_preds[2])):
-                if cl != 0:
-                    class_lst.append(tile_preds[2][cl])
+                class_lst.append(tile_preds[2][cl])
 
         class_lst = torch.stack(class_lst)
 
@@ -83,7 +82,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
                 pass
             elif specific_class is None:
                 # for decoded argmax value
-                class_lst = class_lst.argmax(axis=0) + 1
+                class_lst = class_lst.argmax(axis=0)
             else:
                 # for probabilities of specific class [1] -> klasse 1
                 class_lst = class_lst[specific_class]
@@ -96,14 +95,14 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             else:
                 dtype = gdal.GDT_Byte
 
-            if large_file and np.max(class_lst.numpy()) <= 1:
+            if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
                 class_lst = class_lst.numpy()
                 class_lst *= 255
                 class_lst = np.around(class_lst).astype(np.int8)
                 dtype = gdal.GDT_Byte
-                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans,geoproj)
+                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans,geoproj, None)
             else:
-                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans, geoproj)
+                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans, geoproj, None)
 
     if merge:
         # go through the information for all tiles, find upper left most corner and lower right most corner
@@ -161,6 +160,10 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
 
             # divide raster by counter to turn overlaps into realistic values
             merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
+
+            #set raster to -9999 where no predictions were placed
+            nodata = -9999
+            merged_raster[merge_counter == 0] = nodata #maybe change to merged_raster[merged_raster == 0] = nodata
         else:
             # divide raster by counter to turn overlaps into realistic values
             merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
@@ -168,10 +171,13 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
                 pass
             elif specific_class is None:
                 # for decoded argmax value
-                merged_raster = merged_raster.argmax(axis=0) + 1
+                merged_raster = merged_raster.argmax(axis=0)
             else:
                 # for probabilities of specific class [1] -> klasse 1
                 merged_raster = merged_raster[specific_class]
+
+            # define nodata for classification (either background class or where no Tiles were placed)
+            nodata = 0
 
         if "float" in str(merged_raster.dtype):
             dtype = gdal.GDT_Float32
@@ -180,5 +186,5 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
 
         store_tif(str(output_folder) + "\\class.tif", merged_raster, dtype,
                   [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
-                  geoproj_for_merge)
+                  geoproj_for_merge, nodata)
         print(f"Prediction stored in {output_folder}.")

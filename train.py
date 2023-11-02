@@ -17,6 +17,7 @@ from fastai.vision.learner import model_meta, create_body
 
 from fastai.layers import NormType
 from fastai.learner import Learner
+from fastai.learner import load_learner
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat
 from fastai.metrics import rmse, R2Score, DiceMulti, foreground_acc
 from fastai.optimizer import Adam
@@ -133,7 +134,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
 
 
 def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_factor, lr_finder=None, regression=False,
-               loss_func=None, monitor=None):
+               loss_func=None, monitor=None, existing_model=None):
     """
     Takes a created unet_learner and trains the model on data provided within the dataloaders.
 
@@ -156,6 +157,8 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         learn :             Unet learner now containing a trained model
     """
     weights = Tensor(class_weights).cuda()
+    loss_func.func.weight = weights
+
     if regression:
         if loss_func is None:
             loss_func = MSELossFlat(axis=1)
@@ -178,14 +181,22 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
             warnings.warn("Monitor not recognised. Assuming maximization.")
     cbs = [SaveModelCallback(monitor=monitor, comp=comp, fname='best-model'), CSVLogger()]
 
-    learn = unet_learner_MS(dls,  # DataLoaders
-                            architecture,  # xResNet34
-                            loss_func=loss_func,  # Weighted cross entropy loss
-                            opt_func=Adam,  # Adam optimizer
-                            metrics=metrics,
-                            cbs=cbs,
-                            regression=regression
-                            )
+    #print('weights_tensor: ',loss_func.func.weight)
+    if existing_model is None:
+        learn = unet_learner_MS(dls,  # DataLoaders
+                                architecture,  # xResNet34
+                                loss_func=loss_func,  # Weighted cross entropy loss
+                                opt_func=Adam,  # Adam optimizer
+                                metrics=metrics,
+                                cbs=cbs,
+                                regression=regression
+                                )
+    else:
+        learn=load_learner(existing_model)
+        learn.dls=dls
+        learn.add_cb(CSVLogger())
+        learn.loss_func=loss_func
+        learn.opt_func=Adam
 
     #save model summary
     if export_model_summary:

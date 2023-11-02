@@ -268,7 +268,8 @@ def split_raster(path_to_raster=None,
     raster_dtype = str(rasterio.open(path_to_raster).dtypes[0])
 
     # setnodata 0
-    nodata = rasterio.open(path_to_raster).get_nodatavals()
+    nodata = rasterio.open(path_to_raster).nodata
+
     out_l, out_w, out_o1, out_t, out_o2, out_h = gdal.Open(path_to_raster).GetGeoTransform()
 
     if include_mask:
@@ -281,7 +282,7 @@ def split_raster(path_to_raster=None,
 
         mask_dtype = str(rasterio.open(path_to_mask).dtypes[0])
         numpy_image_mask = rasterio.open(path_to_mask).read()
-        nodata_mask = rasterio.open(path_to_mask).get_nodatavals()
+        nodata_mask = rasterio.open(path_to_mask).nodata
 
         if np.round(img_l, decimals=3) != np.round(msk_l, decimals=3) \
                 or np.round(img_t, decimals=3) != np.round(msk_t, decimals=3) \
@@ -339,27 +340,32 @@ def split_raster(path_to_raster=None,
 
         no_data_values = np.sum(numpy_image_mask[0, :, :] == nodata_mask)
         no_data_percentage = round((no_data_values / len(numpy_image_mask[0].flatten())) * 100)
-        no_data_values_image = np.sum(numpy_image[0, :, :] == nodata[0])
+        no_data_values_image = np.sum(numpy_image[0, :, :] == nodata)
         no_data_percentage_image = round((no_data_values_image / len(numpy_image[0].flatten())) * 100)
 
         if no_data_values:
-            print(f'{no_data_values} no-data-pixels found in mask ({no_data_percentage}%), setting parts of image to 0.')
+            print(
+                f'{no_data_values} no-data-pixels found in mask ({no_data_percentage}%), setting parts of image to 0.')
         if no_data_values_image:
-            print(f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting parts of mask to 0.')
+            print(
+                f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting parts of mask to 0.')
 
-        for b in range(bands_img):
-            numpy_image[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0
-        for b in range(bands_img):
-            numpy_image[b, :, :][numpy_image_mask[0, :, :] == nodata_mask[0]] = 0 #!only checks first band of mask!
-        for b in range(numpy_image_mask.shape[0]):
-            numpy_image_mask[b, :, :][numpy_image_mask[b, :, :] == nodata_mask[b]] = 0
-        for b in range(numpy_image_mask.shape[0]):
-            numpy_image_mask[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0 #!only checks first band of image stack for setting mask to nodata!
+        # Create a boolean mask where any of the image or mask bands has a nodata value
+        nodata_mask = (numpy_image == nodata).any(axis=0) | (numpy_image_mask == nodata_mask).any(axis=0)
+
+        # Set each band of the image and mask to 0 where the mask is True
+        numpy_image[:, nodata_mask] = 0
+        numpy_image_mask[:, nodata_mask] = 0
+
         numpy_image_mask2 = np.moveaxis(numpy_image_mask, 0, 2)
 
-    #numpy_image[0, :, :][np.logical_and(numpy_image[1, :, :] == 0, numpy_image[2, :, :] == 0)] = 0
-    for b in range(bands_img):
-        numpy_image[b, :, :][numpy_image[b, :, :] == nodata[b]] = 0
+    else:
+        # if no mask is included
+        # Create a boolean mask where any of the image bands has a nodata value
+        nodata_mask = (numpy_image == nodata).any(axis=0)
+
+        # Set each band of the image and mask to 0 where the mask is True
+        numpy_image[:, nodata_mask] = 0
 
     numpy_image2 = np.moveaxis(numpy_image, 0, 2)
 

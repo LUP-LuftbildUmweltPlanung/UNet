@@ -2,7 +2,7 @@
 """
 Created on Tue Aug  3 09:12:59 2021
 
-@author: Benny, Manel
+@author: Benny, Manel, Sebastian
 """
 
 import os
@@ -13,7 +13,7 @@ import torch
 import shutil
 
 from pathlib import Path
-
+from sklearn.metrics import confusion_matrix
 from fastai.learner import load_learner
 from fastai.callback.progress import CSVLogger
 
@@ -109,40 +109,29 @@ if Train:
         print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
     else:
         print(f"Class weights: {CLASS_WEIGHTS}")
-    if existing_model is None:
-        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
-                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
-                           regression=enable_regression, loss_func=loss_func, monitor=monitor)
 
-        learn.export(model_path)
-    else:
-        learn = load_learner(existing_model)
-        learn.dls = dls
-        learn.add_cb(CSVLogger())
-        if enable_regression:
-            learn.loss_func = MSELossFlat(axis=1)
-        else:
-            weights = torch.Tensor(CLASS_WEIGHTS).cuda()
-            learn.loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
-        # alternative: learn.loss_func = Smoothl1
+    learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
+                       path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
+                       regression=enable_regression, loss_func=loss_func, monitor=monitor, existing_model=existing_model)
 
-        if enable_regression:
-            if loss_func is None:
-                learn.loss_func = MSELossFlat(axis=1)
-        else:
-            if loss_func is None:
-                learn.loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
+    learn.export(model_path)
 
-        if LR_FINDER is not None:
-            LEARNING_RATE = find_lr(learn, LR_FINDER)
-            print(f'Optimized learning rate: {LEARNING_RATE}')
+    if not regression:
+        valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
 
-        learn.unfreeze()
-        learn.fit_one_cycle(EPOCHS, lr_max=slice(LEARNING_RATE / ENCODER_FACTOR, LEARNING_RATE))
-        learn.export(model_path)
-        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
-        shutil.move(learn.path / learn.csv_logger.fname, hist_path)
-        learn.remove_cb(CSVLogger)
+        # Convert predictions to class labels (assuming it's a multi-class classification problem)
+        valid_preds = np.argmax(valid_preds, axis=1)
+        # Assuming valid_labels and valid_preds are tensors
+        valid_labels = valid_labels.cpu().numpy()  # Convert to NumPy array
+        valid_preds = valid_preds.cpu().numpy()  # Convert to NumPy array
+        ##flatten x y dimension
+        valid_labels_flat = valid_labels.ravel()
+        valid_preds_flat = valid_preds.ravel()
+        # Calculate the confusion matrix
+        confusion = confusion_matrix(valid_labels_flat, valid_preds_flat)
+        # Print or use the confusion matrix as needed
+        print("Confusion Matrix:")
+        print(confusion)
 
 
 if Predict:

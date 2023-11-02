@@ -14,6 +14,7 @@ from fastai.callback.schedule import minimum, steep, valley, slide
 from fastcore.foundation import L
 
 from osgeo import gdal, gdal_array
+from params import model_path
 
 
 def get_image_tiles(path: Path, ) -> L:
@@ -80,7 +81,7 @@ def annot_min(y, ax=None):
     ax.annotate(text, xy=(xmin, ymin), xytext=(0.06, 0.96), **kw)
 
 
-def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj):
+def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value):
     """Stores a tif file in a specified folder."""
     driver = gdal.GetDriverByName('GTiff')
 
@@ -97,6 +98,13 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj):
             out_ds.GetRasterBand(b + 1).WriteArray(output_array[b])
     else:
         out_ds.GetRasterBand(1).WriteArray(output_array)
+
+    # loop through the image bands to set nodata
+    if nodata_value is not None:
+        for i in range(1, out_ds.RasterCount + 1):
+            # set the nodata value of the band
+            out_ds.GetRasterBand(i).SetNoDataValue(nodata_value)
+
     out_ds.FlushCache()
     out_ds = None
 
@@ -136,18 +144,15 @@ def is_outlier(points, thresh=3.5):
 
 
 def get_class_weights(path, tiles):
-    """Creates class weights anti-proportional to the amount of class-counts in the dataset."""
+    """Creates class weights inversely proportional to the amount of class-counts in the dataset."""
     msk_files = path / r"trai/mask_tiles"
-    dls = tiles.dataloaders(path, bs=np.min([len(list(msk_files.glob('*.tif'))), 700]), num_workers=0)
+    dls = tiles.dataloaders(path, bs=np.min([len(list(msk_files.glob('*.tif'))), 1200]), num_workers=0)
     count_tensor = dls.one_batch()[1].unique(return_counts=True)[1]
-
+    total_samples = sum(count_tensor)  # Total number of samples in the dataset
     class_w = []
-    for classes in range(len(count_tensor)):
-        count_classes = count_tensor[classes].item()
-        class_w.append(1 / count_classes)
-    class_w /= np.sum(class_w)
-    class_w_nobackg = (0.99/np.sum(class_w[1:])*class_w[1:]) #get weights without background class
-    class_w = np.concatenate((np.array([1-sum(class_w_nobackg)]),class_w_nobackg )) #create weights array with fixed background wheight
+    for count in count_tensor:
+        class_weight = total_samples.item() / count.item()
+        class_w.append(class_weight)
 
     return class_w
 
