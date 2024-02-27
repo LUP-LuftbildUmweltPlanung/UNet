@@ -14,7 +14,7 @@ from fastai.callback.schedule import minimum, steep, valley, slide
 from fastcore.foundation import L
 
 from osgeo import gdal, gdal_array
-from params import model_path
+
 
 
 def get_image_tiles(path: Path, ) -> L:
@@ -157,7 +157,7 @@ def get_class_weights(path, tiles):
     return class_w
 
 
-def visualize_data(inputs):
+def visualize_data(inputs, model_path):
     """Plots a detailed histogram of the data bands"""
     if len(inputs.shape) != 3:
         inputs_bands = inputs.shape[1]
@@ -206,6 +206,33 @@ def find_lr(learn, finder):
                       " Using valley.")
 
     return lr_max
+
+
+def check_and_fill(args, target_len):
+    """
+    Ensure that all argument lists match the target length by repeating their single element if necessary.
+
+    This function iterates through a list of argument lists (args) and checks each one against the target length (target_len).
+    If an argument list has exactly one element, it is repeated to match the target length. If an argument list does not match
+    the target length and has more than one element, a ValueError is raised to indicate a configuration error.
+
+    Parameters:
+    - args: A list of lists. Each inner list corresponds to an argument that might need adjustment.
+    - target_len: The target length that all argument lists should match.
+
+    Returns:
+    - A list of lists, where each inner list has been adjusted to match the target length or is left as is if it already matches.
+
+    Raises:
+    - ValueError: If an argument list has more than one element but does not match the target length.
+    """
+    for i, arg in enumerate(args):
+        if len(arg) == 1:
+            args[i] = arg * target_len
+        elif len(arg) != target_len:
+            raise ValueError(f"Argument list at index {i} has {len(arg)} elements; expected {target_len}.")
+    return args
+
 
 
 

@@ -46,6 +46,7 @@ else:
     max_empty = 0.9
     ARCHITECTURE = xresnet34
     transforms = None
+    self_attention = False
 
 # Check if CUDA is available
 if torch.cuda.is_available():
@@ -112,11 +113,11 @@ if Train:
 
     learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
                        path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
-                       regression=enable_regression, loss_func=loss_func, monitor=monitor, existing_model=existing_model)
+                       regression=enable_regression, loss_func=loss_func, monitor=monitor, existing_model=existing_model, self_attention=self_attention)
 
     learn.export(model_path)
 
-    if not regression:
+    if not enable_regression:
         valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
 
         # Convert predictions to class labels (assuming it's a multi-class classification problem)
@@ -135,7 +136,5 @@ if Train:
 
 
 if Predict:
-    learn = load_learner(Path(predict_model))
-    predict_path = Path(predict_path)
-    save_predictions(learn, predict_path, regression, merge, all_classes, specific_class, large_file)
+    save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file)
 

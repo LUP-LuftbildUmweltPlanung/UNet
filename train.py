@@ -5,7 +5,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import shutil
 import sys
-from params import export_model_summary
+#from params import export_model_summary
+from sklearn.metrics import confusion_matrix
+from data import create_data_block
 
 from torch import nn, Tensor
 from pathlib import Path
@@ -30,7 +32,7 @@ from fastai.torch_core import params, to_device, apply_init
 from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
 
-from utils import annot_min, find_lr
+from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data
 
 
 def _add_norm(dls, meta, pretrained):
@@ -73,7 +75,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
                     loss_func=None, norm_type: Optional[NormType] = NormType, opt_func=Adam, lr=defaults.lr,
                     splitter=None, cbs=None, metrics=None, path=None,
                     model_dir='models', wd=None, wd_bn_bias=False, train_bn=True, moms=(0.95, 0.85, 0.95),
-                    regression=False):
+                    regression=False, self_attention=False):
     """
     Creates a fastai Unet Learner based on a classification architecture using Dynamic Unet.
     To allow for more input-bands, the first layer of the classification architecture is removed
@@ -111,9 +113,8 @@ def unet_learner_MS(dls, arch, pretrained=True,
         n_out = 1
     else:
         n_out = len(dls.vocab)
-
-    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=False, blur_final=True,
-                                              self_attention=False, y_range=None, norm_type=norm_type, last_cross=True,
+    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
+                                              self_attention=self_attention, y_range=None, norm_type=norm_type, last_cross=True,
                                               bottle=False), dls.device)
 
     splitter = ifnone(splitter, meta['split'])
@@ -134,7 +135,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
 
 
 def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_factor, lr_finder=None, regression=False,
-               loss_func=None, monitor=None, existing_model=None):
+               loss_func=None, monitor=None, existing_model=None, self_attention=False, export_model_summary=False):
     """
     Takes a created unet_learner and trains the model on data provided within the dataloaders.
 
@@ -156,8 +157,8 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     ---------
         learn :             Unet learner now containing a trained model
     """
+
     weights = Tensor(class_weights).cuda()
-    loss_func.func.weight = weights
 
     if regression:
         if loss_func is None:
@@ -181,7 +182,9 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
             warnings.warn("Monitor not recognised. Assuming maximization.")
     cbs = [SaveModelCallback(monitor=monitor, comp=comp, fname='best-model'), CSVLogger()]
 
+    loss_func.func.weight = weights
     #print('weights_tensor: ',loss_func.func.weight)
+
     if existing_model is None:
         learn = unet_learner_MS(dls,  # DataLoaders
                                 architecture,  # xResNet34
@@ -189,7 +192,8 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
                                 opt_func=Adam,  # Adam optimizer
                                 metrics=metrics,
                                 cbs=cbs,
-                                regression=regression
+                                regression=regression,
+                                self_attention=self_attention
                                 )
     else:
         learn=load_learner(existing_model)
@@ -250,3 +254,75 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     plt.savefig(str(hist_path).rsplit('.', 1)[0] + '.png', dpi=200)
 
     return learn
+
+#### define train function to be able to use for train_multi and new params approach
+
+def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
+                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, CODES, transforms, export_model_summary):
+        # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
+        data_path = Path(data_path)
+
+        if existing_model is not None:
+            existing_model = Path(existing_model)
+
+        model_path = Path(model_path)
+
+        # Get datatype of training data
+        print(data_path)
+        dtype = get_datatype(data_path)
+        # Data Block for Reference Storage
+        db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
+                               transforms=transforms)
+        if enable_regression:
+            CLASS_WEIGHTS = [1]
+        elif isinstance(CLASS_WEIGHTS, str):
+            if CLASS_WEIGHTS == "even":
+                CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
+            elif CLASS_WEIGHTS == "weighted":
+                CLASS_WEIGHTS = get_class_weights(data_path, db)
+
+        dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
+        dls.vocab = CODES
+
+        inputs, targets = dls.one_batch()
+        if visualize_data_example:
+            inputs_np = inputs.cpu().detach().numpy()
+            targets_np = targets.cpu().detach().numpy()
+            visualize_data(inputs_np, model_path)
+            os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
+            visualize_data(targets_np, model_path)
+            os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
+
+        print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
+        # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
+        print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
+        print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
+
+        if enable_regression:
+            print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
+        else:
+            print(f"Class weights: {CLASS_WEIGHTS}")
+
+        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
+                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
+                           regression=enable_regression, loss_func=loss_func, monitor=monitor,
+                           existing_model=existing_model, self_attention=self_attention, export_model_summary=export_model_summary)
+
+        learn.export(model_path)
+
+        if not enable_regression:
+            valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
+
+            # Convert predictions to class labels (assuming it's a multi-class classification problem)
+            valid_preds = np.argmax(valid_preds, axis=1)
+            # Assuming valid_labels and valid_preds are tensors
+            valid_labels = valid_labels.cpu().numpy()  # Convert to NumPy array
+            valid_preds = valid_preds.cpu().numpy()  # Convert to NumPy array
+            ##flatten x y dimension
+            valid_labels_flat = valid_labels.ravel()
+            valid_preds_flat = valid_preds.ravel()
+            # Calculate the confusion matrix
+            confusion = confusion_matrix(valid_labels_flat, valid_preds_flat)
+            # Print or use the confusion matrix as needed
+            print("Confusion Matrix:")
+            print(confusion)

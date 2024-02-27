@@ -7,11 +7,12 @@ import time
 from tqdm import tqdm
 from pathlib import Path
 from osgeo import gdal
+from fastai.learner import load_learner
 
 from utils import store_tif
 
 
-def save_predictions(learn, path, regression, merge=False, all_classes=False, specific_class=None, large_file=False):
+def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None, large_file=False):
     """
     Runs a prediction on all tiles within a folder and stores predictions in the predict_tiles folder
 
@@ -24,7 +25,10 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
         all_classes :       If the prediction should contain all prediction values for all classes (default=False)
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
-    output_folder = path / 'predicted_tiles'
+    learn = load_learner(Path(predict_model))
+    path = Path(predict_path)
+
+    output_folder = path / ('predicted_tiles_' + Path(predict_model).stem)
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -68,9 +72,8 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             class_lst = class_lst.numpy()
 
             if large_file and np.max(class_lst) <= 1:
-                class_lst *= 255
+                class_lst *= ((128 / 4) - 1)
                 class_lst = np.around(class_lst).astype(np.int8)
-
             predictions_for_merge.append(class_lst)
             predictions_for_merge_size += class_lst.nbytes
             geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
@@ -97,7 +100,7 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
 
             if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
                 class_lst = class_lst.numpy()
-                class_lst *= 255
+                class_lst *= ((128 / 4) - 1)
                 class_lst = np.around(class_lst).astype(np.int8)
                 dtype = gdal.GDT_Byte
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans,geoproj, None)
@@ -165,12 +168,22 @@ def save_predictions(learn, path, regression, merge=False, all_classes=False, sp
             nodata = -9999
             merged_raster[merge_counter == 0] = nodata #maybe change to merged_raster[merged_raster == 0] = nodata
         else:
+            if large_file:
+
+                # Create a mask that is True where merge_counter is positive - uses less space than [condition] indexing (?)
+                mask = merge_counter > 0
+                # Apply the mask to both arrays and perform the division
+                merged_raster[mask] //= merge_counter[mask]
+
+            else:
+                merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
+
             # divide raster by counter to turn overlaps into realistic values
-            merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
             if all_classes:
                 pass
             elif specific_class is None:
                 # for decoded argmax value
+                #merged_raster = np.where(merged_raster.max(axis=0) < 0.1, 14, merged_raster.argmax(axis=0)) #check if this is still relevant?
                 merged_raster = merged_raster.argmax(axis=0)
             else:
                 # for probabilities of specific class [1] -> klasse 1
