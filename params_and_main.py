@@ -14,7 +14,7 @@ import torch
 import pathlib
 import os
 import warnings
-
+import albumentations as A
 
 
 # PARAMETERS
@@ -88,13 +88,22 @@ specific_class = None  # None or integer of class -> Only this class will be sto
 large_file = False # If predicted probabilities should be stretched to int8 to increase storage capacity
 max_empty = 0.2  # Maximum no data area in created image crops
 ARCHITECTURE = xresnet34 #xresnet34
-transforms = [Dihedral(0.5),  # Horizontal and vertical flip
-              Rotate(max_deg=180, p=0.5),  # Rotation in any direction possible
-              Brightness(0.2, p=0.5),
-              Contrast(0.2, p=0.5),
-              Saturation(0.2),
-              Normalize.from_stats(*imagenet_stats)]
-transforms = None
+aug_pipe = A.Compose([
+            A.HorizontalFlip(p=0.5), # Applies a horizontal flip to the image with a probability of 0.5.
+            A.VerticalFlip(p=0.5), # Applies a vertical flip to the image with a probability of 0.5.
+            A.ShiftScaleRotate(p=0.5), # Randomly applies affine transforms: translation, scaling and rotation in one call with a probability of 0.5.
+            A.RandomBrightnessContrast( # Randomly changes brightness and contrast of the image with a probability of 0.5.
+                brightness_limit=(-0.1,0.1), 
+                contrast_limit=(-0.1, 0.1), 
+                p=0.5
+            ),
+            A.CoarseDropout(p=0.5), # Randomly masks out rectangular regions in the image with a probability of 0.5.
+
+]) # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
+
+Num = 2 # Number of the augmented images minus from the totla number of batch size (default is 2).
+# Create an instance of the transforms 
+transforms = False
 # EXTRA END
 
 
@@ -145,7 +154,8 @@ def main():
     if Train:
         #run train function
         train_func(data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
-                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, CODES, transforms, export_model_summary)
+                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, 
+                CODES, transforms, export_model_summary,  aug_pipe, Num)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file)
