@@ -77,6 +77,7 @@ self_attention = False
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
+save_confusion_matrix = False
 loss_func = CrossEntropyLossFlat(axis=1) #FocalLossFlat(gamma=2, axis=1)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
@@ -157,7 +158,7 @@ def main():
         #run train function
         train_func(data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, 
-                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs)
+                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs, save_confusion_matrix)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file)
