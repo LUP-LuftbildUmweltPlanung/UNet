@@ -260,7 +260,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
 def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
         ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES,
-        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs):
+        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix):
         # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
         data_path = Path(data_path)
 
@@ -326,7 +326,6 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
 
         if not enable_regression:
             valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
-            classes_name = CODES[:]
 
             # Convert predictions to class labels (assuming it's a multi-class classification problem)
             valid_preds = np.argmax(valid_preds, axis=1)
@@ -341,8 +340,9 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
             # Print or use the confusion matrix as needed
             print("Confusion Matrix:")
             print(confusion)
-
             
+        if save_confusion_matrix:
+             classes_name = CODES
             # Create a DataFrame for better visualization
             df_cm = pd.DataFrame(confusion, index=classes_name, columns=classes_name)
                     
