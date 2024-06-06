@@ -267,6 +267,7 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
         if existing_model is not None:
             existing_model = Path(existing_model)
         if transforms:
+            print(f"Applying Augmentation on ({BATCH_SIZE - Num}) images from ({BATCH_SIZE}) images")
             # Use the imported aug_pipe
             transforms = SegmentationAlbumentationsTransform(aug_pipe, Num=Num)
         else:
@@ -307,7 +308,6 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
         # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
         print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
         print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
-        print(f"Applying Augmentation on ({BATCH_SIZE - Num}) images from ({BATCH_SIZE}) images")
 
         
 
