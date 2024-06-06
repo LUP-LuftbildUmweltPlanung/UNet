@@ -239,17 +239,19 @@ def check_and_fill(args, target_len):
 
 
 
-## Augmentation
+       
 class SegmentationAlbumentationsTransform(ItemTransform):
     """Applies Albumentations augmentations to images and optionally masks.
 
     Args:
-        aug (callable): Albumentations augmentation function.
-    
+        aug (callable): Albumentations augmentation function.    
     Note:
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
+
+    split_idx = 0  # Train
+
     def __init__(self, aug, Num=2, **kwargs):
         """
         Initializes the SegmentationAlbumentationsTransform.
@@ -280,11 +282,13 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             # Check if Num is greater than or equal to the batch size
         if len(batch_img) <= self.Num:
             raise ValueError(f"The Num parameter ({self.Num}) must be less than the batch size ({len(batch_img)}).")
-  
+
+        
         transformed_images = []
         transformed_masks = []
         
         if batch_mask is None:
+            split_idx = 1  # Valid
             for img in batch_img:  # Ensure this iterates correctly over a batch
                 # Ensure the image has the correct dimensions [B, C, H, W] -> [B, H, W, C] for Albumentations
                 if img.dim() == 4:
@@ -301,8 +305,6 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         
         # Process each image and mask in the first proportion of the batch
         for img, mask in zip(batch_img[:int(self.Num - len(batch_img))], batch_mask[:int(self.Num - len(batch_img))]):
-            # Normalize the image
-            img = img / img.max()
         
             # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
             img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
@@ -321,7 +323,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             # Convert augmented images and masks back to tensors and append to the transformed lists
             transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
             transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
-            
+        
+        
         # Leave the second proportion of the batch unchanged
         for img, mask in zip(batch_img[int(self.Num - len(batch_img)):], batch_mask[int(self.Num - len(batch_img)):]):
             # Append the unchanged images and masks to the transformed lists
