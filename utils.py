@@ -306,8 +306,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         
             # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
             img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
-        
-            print('Applying augmentation')
+            
             # Ensure tensor is on CPU before converting to numpy array
             img_np = img.cpu().numpy()
             mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
