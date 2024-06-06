@@ -252,17 +252,17 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
     split_idx = 0  # Train
 
-    def __init__(self, aug, Num=2, **kwargs):
+    def __init__(self, aug, n_transform_imgs=2, **kwargs):
         """
         Initializes the SegmentationAlbumentationsTransform.
 
         Args:
             aug (callable): Albumentations augmentation function.
-            Num (float): Number of the augmented images minus from the batch size (default is 2).
+            n_transform_imgs (int): Number of the augmented images minus from the batch size (default is 2).
         """
         super().__init__(**kwargs)
         self.aug = aug
-        self.Num = Num
+        self.n_transform_imgs = n_transform_imgs
 
     def encodes(self, x):
         """
@@ -279,9 +279,9 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         except ValueError:
             batch_img = x  # Only one value provided, assuming it's just the image
             batch_mask = None  # No mask provided
-            # Check if Num is greater than or equal to the batch size
-        if len(batch_img) <= self.Num:
-            raise ValueError(f"The Num parameter ({self.Num}) must be less than the batch size ({len(batch_img)}).")
+            # Check if n_transform_imgs is greater than or equal to the batch size
+        if len(batch_img) < self.n_transform_imgs:
+            raise ValueError(f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be less than the batch size ({len(batch_img)}).")
 
         
         transformed_images = []
@@ -304,7 +304,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             return torch.stack(transformed_images)  # Stack to get [B, C, H, W]
         
         # Process each image and mask in the first proportion of the batch
-        for img, mask in zip(batch_img[:int(self.Num - len(batch_img))], batch_mask[:int(self.Num - len(batch_img))]):
+        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))], batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
         
             # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
             img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
@@ -326,7 +326,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         
         
         # Leave the second proportion of the batch unchanged
-        for img, mask in zip(batch_img[int(self.Num - len(batch_img)):], batch_mask[int(self.Num - len(batch_img)):]):
+        for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
