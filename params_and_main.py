@@ -101,7 +101,9 @@ aug_pipe = A.Compose([
 
 ]) # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
 
-Num = 2 # Number of the augmented images minus from the totla number of batch size (default is 2).
+n_transform_imgs = 2 # Number of augmented images subtracted from the total batch size (default is 2).
+# For instance, if the batch size is 10 and n_transform_imgs is set to 2, 8 images will be augmented.
+
 # Create an instance of the transforms 
 transforms = False
 # EXTRA END
@@ -155,7 +157,7 @@ def main():
         #run train function
         train_func(data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, 
-                CODES, transforms, export_model_summary,  aug_pipe, Num)
+                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file)
