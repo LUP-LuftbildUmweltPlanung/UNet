@@ -245,7 +245,6 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
     Args:
         aug (callable): Albumentations augmentation function.
-        prop (float): Proportion of the batch to apply augmentation to (default is 0.5).
     
     Note:
         This transform expects input data in the form of tuples (image, mask).
