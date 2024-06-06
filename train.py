@@ -269,7 +269,7 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
         if transforms:
             print(f"Applying Augmentation on ({BATCH_SIZE - Num}) images from ({BATCH_SIZE}) images")
             # Use the imported aug_pipe
-            transforms = SegmentationAlbumentationsTransform(aug_pipe, Num=Num)
+            transforms = SegmentationAlbumentationsTransform(aug_pipe, n_transform_imgs=n_transform_imgs)
         else:
             # Define a default augmentation pipeline
             aug_pipe = A.Compose([
