@@ -260,14 +260,14 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
 def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
         ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES,
-        CODES, transforms, export_model_summary, aug_pipe, Num):
+        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs):
         # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
         data_path = Path(data_path)
 
         if existing_model is not None:
             existing_model = Path(existing_model)
         if transforms:
-            print(f"Applying Augmentation on ({BATCH_SIZE - Num}) images from ({BATCH_SIZE}) images")
+            print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
             # Use the imported aug_pipe
             transforms = SegmentationAlbumentationsTransform(aug_pipe, n_transform_imgs=n_transform_imgs)
         else:
