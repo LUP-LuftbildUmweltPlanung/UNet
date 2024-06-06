@@ -101,8 +101,8 @@ aug_pipe = A.Compose([
 
 ]) # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
 
-n_transform_imgs = 2 # Number of augmented images subtracted from the total batch size (default is 2).
-# For instance, if the batch size is 10 and n_transform_imgs is set to 2, 8 images will be augmented.
+n_transform_imgs = 2 # Number of augmented images (default is 2).
+
 
 # Create an instance of the transforms 
 transforms = False
