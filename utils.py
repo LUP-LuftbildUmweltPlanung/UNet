@@ -303,8 +303,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                         print("Error during augmentation:", e)
             return torch.stack(transformed_images)  # Stack to get [B, C, H, W]
         
-        # Process each image and mask in the first proportion of the batch
-        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))], batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
+        # Process each image and mask in the last proportion of the batch
+        for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
         
             # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
             img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
@@ -325,8 +325,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
         
         
-        # Leave the second proportion of the batch unchanged
-        for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
+        # Leave the first proportion of the batch unchanged
+        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))], batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
