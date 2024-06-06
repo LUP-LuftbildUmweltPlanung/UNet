@@ -327,7 +327,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
-            print('Not applying augmentation')
+
         
         # Stack all processed items in the batch back into tensors
         return torch.stack(transformed_images), torch.stack(transformed_masks)
