@@ -3,19 +3,19 @@ import os
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
-
-
-
-import torch
-from torch import nn
 from pathlib import Path
 
+
+from torch import nn
+import torch
 
 from fastai.losses import BaseLoss
 from fastai.data.transforms import get_image_files
 from fastai.vision.core import PILMask
 from fastai.callback.schedule import minimum, steep, valley, slide
 from fastcore.foundation import L
+from fastai.vision.all import ItemTransform, TensorImage, TensorMask
+
 
 from osgeo import gdal, gdal_array
 
