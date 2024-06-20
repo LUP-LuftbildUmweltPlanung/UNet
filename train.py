@@ -345,7 +345,10 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
             print(confusion)
         
             if save_confusion_matrix:
-                classes_name = CODES
+                if len(CODES) == 2:
+                    classes_name = CODES
+                else:
+                    classes_name = CODES[1:]
                 # Create a DataFrame for better visualization
                 df_cm = pd.DataFrame(confusion, index=classes_name, columns=classes_name)
         
