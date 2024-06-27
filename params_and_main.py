@@ -14,7 +14,7 @@ import torch
 import pathlib
 import os
 import warnings
-
+import albumentations as A
 
 
 # PARAMETERS
@@ -77,6 +77,7 @@ self_attention = False
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
+save_confusion_matrix = False
 loss_func = CrossEntropyLossFlat(axis=1) #FocalLossFlat(gamma=2, axis=1)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
@@ -88,13 +89,24 @@ specific_class = None  # None or integer of class -> Only this class will be sto
 large_file = False # If predicted probabilities should be stretched to int8 to increase storage capacity
 max_empty = 0.2  # Maximum no data area in created image crops
 ARCHITECTURE = xresnet34 #xresnet34
-transforms = [Dihedral(0.5),  # Horizontal and vertical flip
-              Rotate(max_deg=180, p=0.5),  # Rotation in any direction possible
-              Brightness(0.2, p=0.5),
-              Contrast(0.2, p=0.5),
-              Saturation(0.2),
-              Normalize.from_stats(*imagenet_stats)]
-transforms = None
+aug_pipe = A.Compose([
+            A.HorizontalFlip(p=0.5), # Applies a horizontal flip to the image with a probability of 0.5.
+            A.VerticalFlip(p=0.5), # Applies a vertical flip to the image with a probability of 0.5.
+            A.ShiftScaleRotate(p=0.5), # Randomly applies affine transforms: translation, scaling and rotation in one call with a probability of 0.5.
+            A.RandomBrightnessContrast( # Randomly changes brightness and contrast of the image with a probability of 0.5.
+                brightness_limit=(-0.1,0.1), 
+                contrast_limit=(-0.1, 0.1), 
+                p=0.5
+            ),
+            A.CoarseDropout(p=0.5), # Randomly masks out rectangular regions in the image with a probability of 0.5.
+
+]) # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
+
+n_transform_imgs = 2 # Number of augmented images (default is 2).
+
+
+# Create an instance of the transforms 
+transforms = False
 # EXTRA END
 
 
@@ -145,7 +157,8 @@ def main():
     if Train:
         #run train function
         train_func(data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
-                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, CODES, transforms, export_model_summary)
+                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, 
+                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs, save_confusion_matrix)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file)

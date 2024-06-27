@@ -3,15 +3,17 @@ import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import seaborn as sn
 import shutil
 import sys
 #from params import export_model_summary
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, classification_report
 from data import create_data_block
 
 from torch import nn, Tensor
 from pathlib import Path
 from typing import Optional
+from IPython.display import display
 
 import fastai.vision.models as models
 from fastai.vision.core import imagenet_stats
@@ -31,8 +33,10 @@ from fastai.torch_core import params, to_device, apply_init
 
 from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
+import albumentations as A
+from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, SegmentationAlbumentationsTransform
 
-from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data
+
 
 
 def _add_norm(dls, meta, pretrained):
@@ -258,12 +262,22 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 #### define train function to be able to use for train_multi and new params approach
 
 def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
-                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, CODES, transforms, export_model_summary):
+        ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES,
+        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix):
         # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
         data_path = Path(data_path)
 
         if existing_model is not None:
             existing_model = Path(existing_model)
+        if transforms:
+            print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
+            # Use the imported aug_pipe
+            transforms = SegmentationAlbumentationsTransform(aug_pipe, n_transform_imgs=n_transform_imgs)
+        else:
+            # Define a default augmentation pipeline
+            aug_pipe = A.Compose([
+                A.NoOp()  # No operation, pass-through transform
+            ])
 
         model_path = Path(model_path)
 
@@ -298,6 +312,9 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
         print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
         print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
 
+        
+
+
         if enable_regression:
             print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
         else:
@@ -312,13 +329,13 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
 
         if not enable_regression:
             valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
-
+        
             # Convert predictions to class labels (assuming it's a multi-class classification problem)
             valid_preds = np.argmax(valid_preds, axis=1)
             # Assuming valid_labels and valid_preds are tensors
             valid_labels = valid_labels.cpu().numpy()  # Convert to NumPy array
             valid_preds = valid_preds.cpu().numpy()  # Convert to NumPy array
-            ##flatten x y dimension
+            # Flatten x y dimension
             valid_labels_flat = valid_labels.ravel()
             valid_preds_flat = valid_preds.ravel()
             # Calculate the confusion matrix
@@ -326,3 +343,39 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
             # Print or use the confusion matrix as needed
             print("Confusion Matrix:")
             print(confusion)
+        
+            if save_confusion_matrix:
+                if len(CODES) == 2:
+                    classes_name = CODES
+                else:
+                    classes_name = CODES[1:]
+                # Create a DataFrame for better visualization
+                df_cm = pd.DataFrame(confusion, index=classes_name, columns=classes_name)
+        
+                # Plot the confusion matrix
+                plt.figure(figsize=(10, 7))
+                sn.heatmap(df_cm, annot=True, fmt='d', cmap="crest")
+                plt.title("Confusion Matrix")
+                plt.xlabel("Predicted")
+                plt.ylabel("True")
+                confusion_matrix_path = os.path.join(os.path.dirname(model_path), "confusion_matrix.png")
+                plt.savefig(confusion_matrix_path)
+                plt.show()
+        
+                # Generate and print classification report
+                class_report = classification_report(valid_labels_flat, valid_preds_flat, target_names=classes_name, output_dict=True)
+                df_class_report = pd.DataFrame(class_report).transpose()
+        
+                # Plot classification report
+                plt.figure(figsize=(10, 7))
+                sn.heatmap(df_class_report.iloc[:-1, :], annot=True, cmap="crest")
+                plt.title("Classification Report")
+                classification_report_path = os.path.join(os.path.dirname(model_path), "classification_report.png")
+                plt.savefig(classification_report_path)
+                plt.show()
+        
+                # Display the classification report DataFrame
+                display(df_class_report)
+        
+                # Save the DataFrame for classification report
+                df_class_report.to_csv(os.path.join(os.path.dirname(model_path), "classification_report.csv"), index=True)

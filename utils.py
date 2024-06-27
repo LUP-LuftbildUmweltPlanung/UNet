@@ -3,15 +3,19 @@ import os
 import warnings
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
+
 
 from torch import nn
-from pathlib import Path
+import torch
 
 from fastai.losses import BaseLoss
 from fastai.data.transforms import get_image_files
 from fastai.vision.core import PILMask
 from fastai.callback.schedule import minimum, steep, valley, slide
 from fastcore.foundation import L
+from fastai.vision.all import ItemTransform, TensorImage, TensorMask
+
 
 from osgeo import gdal, gdal_array
 
@@ -235,4 +239,98 @@ def check_and_fill(args, target_len):
 
 
 
+       
+class SegmentationAlbumentationsTransform(ItemTransform):
+    """Applies Albumentations augmentations to images and optionally masks.
 
+    Args:
+        aug (callable): Albumentations augmentation function.    
+    Note:
+        This transform expects input data in the form of tuples (image, mask).
+        If only images are provided, it assumes no masks are present.
+    """
+
+    split_idx = 0  # Train
+
+    def __init__(self, aug, n_transform_imgs=2, **kwargs):
+        """
+        Initializes the SegmentationAlbumentationsTransform.
+
+        Args:
+            aug (callable): Albumentations augmentation function.
+            n_transform_imgs (int): Number of the augmented images minus from the batch size (default is 2).
+        """
+        super().__init__(**kwargs)
+        self.aug = aug
+        self.n_transform_imgs = n_transform_imgs
+
+    def encodes(self, x):
+        """
+        Applies Albumentations augmentations to input images and masks.
+
+        Args:
+            x (tuple or Tensor): Input data containing images and masks.
+
+        Returns:
+            Tensor or tuple of Tensors: Transformed images and masks (if provided).
+        """
+        try:
+            batch_img, batch_mask = x  # Expecting tuple (img, mask)
+        except ValueError:
+            batch_img = x  # Only one value provided, assuming it's just the image
+            batch_mask = None  # No mask provided
+            # Check if n_transform_imgs is greater than or equal to the batch size
+        if len(batch_img) < self.n_transform_imgs:
+            raise ValueError(f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be less than the batch size ({len(batch_img)}).")
+
+        
+        transformed_images = []
+        transformed_masks = []
+        
+        if batch_mask is None:
+            split_idx = 1  # Valid
+            for img in batch_img:  # Ensure this iterates correctly over a batch
+                # Ensure the image has the correct dimensions [B, C, H, W] -> [B, H, W, C] for Albumentations
+                if img.dim() == 4:
+                    img_np = img.permute(0, 2, 3, 1).cpu().numpy()  # Change to [B, H, W, C]
+            
+                    # Apply augmentation to each image individually in the batch
+                    try:
+                        transformed = self.aug(image=img_np[0])  # Apply to the first (or only) image in the batch
+                        img_aug = np.transpose(transformed['image'], (2, 0, 1))
+                        transformed_images.append(TensorImage(torch.from_numpy(img_aug).unsqueeze(0)))  # Re-add batch dimension
+                    except Exception as e:
+                        print("Error during augmentation:", e)
+            return torch.stack(transformed_images)  # Stack to get [B, C, H, W]
+        
+        # Process each image and mask in the last proportion of the batch
+        for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
+        
+            # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
+            img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
+            
+            # Ensure tensor is on CPU before converting to numpy array
+            img_np = img.cpu().numpy()
+            mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
+        
+            # Apply augmentation
+            aug = self.aug(image=img_np, mask=mask_np)
+        
+            # After augmentation, transpose image back to [C, H, W]
+            img_aug = np.transpose(aug['image'], (2, 0, 1))
+            mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
+        
+            # Convert augmented images and masks back to tensors and append to the transformed lists
+            transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
+            transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
+        
+        
+        # Leave the first proportion of the batch unchanged
+        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))], batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
+            # Append the unchanged images and masks to the transformed lists
+            transformed_images.append(img)
+            transformed_masks.append(mask)
+
+        
+        # Stack all processed items in the batch back into tensors
+        return torch.stack(transformed_images), torch.stack(transformed_masks)
