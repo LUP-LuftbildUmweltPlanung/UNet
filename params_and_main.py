@@ -18,7 +18,7 @@ import albumentations as A
 
 
 # PARAMETERS
-Create_tiles = False
+Create_tiles = True
 Train = False
 Predict = False
 
