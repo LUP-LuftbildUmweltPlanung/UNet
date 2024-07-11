@@ -366,9 +366,10 @@ def train_func (data_path, existing_model,model_Path, description, BATCH_SIZE, v
         learn.export(model_path)
 
 
+        
         if not enable_regression:
             valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
-        
+            
             # Convert predictions to class labels (assuming it's a multi-class classification problem)
             valid_preds = np.argmax(valid_preds, axis=1)
             # Assuming valid_labels and valid_preds are tensors
@@ -377,20 +378,25 @@ def train_func (data_path, existing_model,model_Path, description, BATCH_SIZE, v
             # Flatten x y dimension
             valid_labels_flat = valid_labels.ravel()
             valid_preds_flat = valid_preds.ravel()
-            # Calculate the confusion matrix
-            confusion = confusion_matrix(valid_labels_flat, valid_preds_flat)
+            
+            # Extract unique classes from the validation labels
+            unique_valid_classes = np.unique(valid_labels_flat)
+        
+            # Get the full list of class names from the training data
+            classes_name = dls.vocab
+        
+            # Calculate the confusion matrix for the unique classes in validation data
+            confusion = confusion_matrix(valid_labels_flat, valid_preds_flat, labels=unique_valid_classes)
+            
             # Print or use the confusion matrix as needed
             print("Confusion Matrix:")
             print(confusion)
-        
+            
             if save_confusion_matrix:
-                if len(CODES) == 2:
-                    classes_name = CODES
-                else:
-                    classes_name = CODES[1:]
                 # Create a DataFrame for better visualization
-                df_cm = pd.DataFrame(confusion, index=classes_name, columns=classes_name)
-        
+                valid_classes_name = [classes_name[i] for i in unique_valid_classes]
+                df_cm = pd.DataFrame(confusion, index=valid_classes_name, columns=valid_classes_name)
+            
                 # Plot the confusion matrix
                 plt.figure(figsize=(10, 7))
                 sn.heatmap(df_cm, annot=True, fmt='d', cmap="crest")
@@ -400,11 +406,11 @@ def train_func (data_path, existing_model,model_Path, description, BATCH_SIZE, v
                 confusion_matrix_path = os.path.join(os.path.dirname(model_path), "confusion_matrix.png")
                 plt.savefig(confusion_matrix_path)
                 plt.show()
-        
+            
                 # Generate and print classification report
-                class_report = classification_report(valid_labels_flat, valid_preds_flat, target_names=classes_name, output_dict=True)
+                class_report = classification_report(valid_labels_flat, valid_preds_flat, target_names=valid_classes_name, output_dict=True, zero_division=0)
                 df_class_report = pd.DataFrame(class_report).transpose()
-        
+            
                 # Plot classification report
                 plt.figure(figsize=(10, 7))
                 sn.heatmap(df_class_report.iloc[:-1, :], annot=True, cmap="crest")
@@ -412,9 +418,9 @@ def train_func (data_path, existing_model,model_Path, description, BATCH_SIZE, v
                 classification_report_path = os.path.join(os.path.dirname(model_path), "classification_report.png")
                 plt.savefig(classification_report_path)
                 plt.show()
-        
+            
                 # Display the classification report DataFrame
                 display(df_class_report)
-        
+            
                 # Save the DataFrame for classification report
                 df_class_report.to_csv(os.path.join(os.path.dirname(model_path), "classification_report.csv"), index=True)
