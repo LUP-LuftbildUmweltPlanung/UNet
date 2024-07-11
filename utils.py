@@ -4,7 +4,9 @@ import warnings
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
-
+import json
+import re
+import tifffile
 
 from torch import nn
 import torch
@@ -54,21 +56,6 @@ def get_y(fn: Path):
     return PILMask.create(msk2)
 
 
-def delete_folder(folder_path):
-    """Deletes an empty folder by given path"""
-    # checking whether folder exists or not
-    if os.path.exists(folder_path):
-
-        # checking whether the folder is empty or not
-        if len(os.listdir(folder_path)) == 0:
-            # removing the file using the os.remove() method
-            os.rmdir(folder_path)
-        else:
-            # messaging saying folder not empty
-            print("Folder is not empty")
-    else:
-        # file not found message
-        print("Folder not found in the directory")
 
 
 def annot_min(y, ax=None):
@@ -83,34 +70,6 @@ def annot_min(y, ax=None):
     kw = dict(xycoords='data', textcoords="axes fraction",
               arrowprops=arrowprops, bbox=bbox_props, ha="left", va="top")
     ax.annotate(text, xy=(xmin, ymin), xytext=(0.06, 0.96), **kw)
-
-
-def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value):
-    """Stores a tif file in a specified folder."""
-    driver = gdal.GetDriverByName('GTiff')
-
-    if len(output_array.shape) == 3:
-        out_ds = driver.Create(str(output_folder), output_array.shape[2], output_array.shape[1], output_array.shape[0],
-                               dtype)
-    else:
-        out_ds = driver.Create(str(output_folder), output_array.shape[1], output_array.shape[0], 1, dtype)
-    out_ds.SetGeoTransform(geo_transform)
-
-    out_ds.SetProjection(geo_proj)
-    if len(output_array.shape) == 3:
-        for b in range(output_array.shape[0]):
-            out_ds.GetRasterBand(b + 1).WriteArray(output_array[b])
-    else:
-        out_ds.GetRasterBand(1).WriteArray(output_array)
-
-    # loop through the image bands to set nodata
-    if nodata_value is not None:
-        for i in range(1, out_ds.RasterCount + 1):
-            # set the nodata value of the band
-            out_ds.GetRasterBand(i).SetNoDataValue(nodata_value)
-
-    out_ds.FlushCache()
-    out_ds = None
 
 
 def get_datatype(path):
@@ -210,6 +169,7 @@ def find_lr(learn, finder):
                       " Using valley.")
 
     return lr_max
+
 
 
 def check_and_fill(args, target_len):
@@ -334,3 +294,158 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         
         # Stack all processed items in the batch back into tensors
         return torch.stack(transformed_images), torch.stack(transformed_masks)
+    
+    
+
+
+def save_params(params, model_Path, description):
+    """
+    Save parameters to a JSON file.
+
+    Parameters:
+    - params (dict): Dictionary of parameters to save.
+    - description (str): Description to be used as the folder and file name.
+    """
+    def default_converter(o):
+        if isinstance(o, (int, float, str, bool, type(None))):
+            return o
+        return str(o)
+
+    # Path to save the JSON file
+    json_path = Path(model_Path) / f"{description}.json"
+
+    with open(json_path, 'w') as json_file:
+        json.dump(params, json_file, indent=4, default=default_converter)
+    print(f'Parameters saved to {json_path}')
+    
+
+def get_patch_size(base_dir):
+    base_dir = Path(base_dir)
+    base_dir = base_dir / "trai" / "img_tiles"
+    
+    # List all files in the directory
+    files = [f for f in os.listdir(base_dir) if f.endswith('.tif')]
+    
+    if not files:
+        raise ValueError("No .tif files found in the directory")
+    
+    # Open the first file to get the size, resolution, and data type
+    file_path = base_dir / files[0]
+    with tifffile.TiffFile(file_path) as tif:
+        # Get image size
+        width, height = tif.pages[0].shape[:2]
+        
+        # Attempt to get resolution from ModelPixelScaleTag if available
+        resolution = None
+        try:
+            model_pixel_scale_tag = tif.pages[0].tags['ModelPixelScaleTag'].value
+            resolution = (model_pixel_scale_tag[0], model_pixel_scale_tag[1])
+        except KeyError:
+            pass
+        
+        # If ModelPixelScaleTag is not found, use the default or any other available tags
+        if resolution is None:
+            for tag_name in ['XResolution', 'YResolution', 'Pixel Size']:
+                try:
+                    res_value = tif.pages[0].tags[tag_name].value
+                    if isinstance(res_value, tuple) or isinstance(res_value, list):
+                        resolution = (res_value[0], res_value[1])
+                    else:
+                        resolution = res_value
+                    break
+                except KeyError:
+                    continue
+        
+        # Get data type
+        data_type = tif.pages[0].dtype
+        
+        # Get number of bands
+        number_of_bands = tif.pages[0].samplesperpixel
+    
+    return width, resolution, data_type, number_of_bands
+
+
+
+def process_and_save_params(data_path, aug_pipe, model_path, description,transforms=False, **kwargs):
+    """
+    Process and save parameters to a JSON file.
+
+    Parameters:
+    - data_path (str): Path to the data.
+    - aug_pipe (object): Augmentation pipeline.
+    - model_path (str): Path to save the model parameters.
+    - description (str): Description to be used as the folder and file name.
+    - kwargs: Additional parameters to be processed.
+    """
+
+    # Extract patch size from the img path
+    patch_size, resolution, data_type, number_of_bands = get_patch_size(data_path)
+
+    # Extract the augmentation parameters
+    aug_params_ = {transform.__class__.__name__: transform.p for transform in aug_pipe.transforms}
+
+    # Capture parameters using locals()
+    params = locals()
+    params['patch_size'] = patch_size
+    params['resolution'] = resolution
+    params['data_type'] = data_type
+    params['number_of_bands'] = number_of_bands
+    params['aug_params_'] = aug_params_
+      # Remove specific keys from params
+    for key in ['data_path', 'aug_pipe', 'model_path', 'description']:
+          params.pop(key, None)
+
+    
+        # Conditionally delete specific keys
+    if not transforms:
+        params.pop('aug_params_', None)
+        # Remove specific keys from kwargs if necessary
+        kwargs.pop('n_transform_imgs', None)
+    
+    # Ensure 'transforms' is set to True if it is supposed to be
+    if transforms:
+        params['transforms'] = True
+        
+    
+    # Keys to delete
+    keys_to_delete = ['BATCH_SIZE', 'EPOCHS', 'regression', 'LEARNING_RATE', 'LR_FINDER', 'ENCODER_FACTOR', 'loss_func', 
+                      'self_attention', 'monitor', 'ARCHITECTURE', 'CODES']
+
+    # Delete the keys
+    for key in keys_to_delete:
+        if key in params:
+            del params[key]
+
+    def default_converter(o):
+        if isinstance(o, (int, float, str, bool, type(None))):
+            return o
+        return str(o)
+
+    # Convert the parameters dictionary to a JSON string
+    json_string = json.dumps(params, indent=4, default=default_converter)
+
+    # # Use regex to format the JSON string as desired
+    # formatted_json_string = re.sub(r'(\d),\s+', r'\1, ', json_string)
+
+    # # Ensure specific keys are printed in one line
+    # formatted_json_string = re.sub(
+    #     r'("CODES":\s*\[)([^\]]*)(\])',
+    #     lambda m: f'{m.group(1)}{" ".join(m.group(2).split())}{m.group(3)}',
+    #     json_string
+    # )
+    # Ensure specific keys are printed in one line
+
+    formatted_json_string = re.sub(
+        r'("CODES":\s*\[)([^\]]*)(\])|("VALID_SCENES":\s*\[)([^\]]*)(\])|("resolution":\s*\[)([^\]]*)(\])',
+        lambda m: f'{m.group(1) or m.group(4) or m.group(7)}{" ".join((m.group(2) or m.group(5) or m.group(8)).split())}{m.group(3) or m.group(6) or m.group(9)}',
+        json_string
+    )
+    # Path to save the JSON file
+    json_path = Path(model_path) / f"{description}.json"
+
+    # Save the formatted JSON string to a file
+    with open(json_path, 'w') as json_file:
+        json_file.write(formatted_json_string)
+    
+    print(f'Parameters saved to {json_path}')
+

@@ -6,14 +6,17 @@ import matplotlib.pyplot as plt
 import seaborn as sn
 import shutil
 import sys
-#from params import export_model_summary
 from sklearn.metrics import confusion_matrix, classification_report
-from data import create_data_block
-
 from torch import nn, Tensor
+import json
 from pathlib import Path
 from typing import Optional
 from IPython.display import display
+import albumentations as A
+
+from data import create_data_block
+from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, SegmentationAlbumentationsTransform, process_and_save_params
+
 
 import fastai.vision.models as models
 from fastai.vision.core import imagenet_stats
@@ -33,9 +36,30 @@ from fastai.torch_core import params, to_device, apply_init
 
 from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
-import albumentations as A
-from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, SegmentationAlbumentationsTransform
 
+
+
+
+
+def load_split_raster_params(json_path):
+    """
+    Load parameters from a JSON file and extract the values.
+
+    Parameters:
+    -----------
+    json_path: Path to the JSON file containing the parameters.
+
+    Returns:
+    --------
+    params: A dictionary containing the parameters.
+    """
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
+    
+    with open(json_path, 'r') as json_file:
+        params = json.load(json_file)
+    
+    return params
 
 
 
@@ -239,12 +263,12 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     valid_loss = hist['valid_loss'].tolist()
 
     plt.figure(figsize=(7, 7))
-    plt.plot(train_loss, label='Training')
+    #plt.plot(train_loss, label='Training')
     plt.plot(valid_loss, label='Validation')
 
     if monitor not in ['train_loss', 'valid_loss']:
         monitor = hist['train_loss'].tolist()
-        plt.plot(monitor, label='Monitor')
+        plt.plot(monitor, label='Training')
         annot_min(monitor)
         plt.ylim(0, np.max(monitor) * 1.3)
     else:
@@ -261,11 +285,12 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
 #### define train function to be able to use for train_multi and new params approach
 
-def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
+def train_func (data_path, existing_model,model_Path, description, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
         ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES,
-        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix):
+        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info):
         # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
         data_path = Path(data_path)
+
 
         if existing_model is not None:
             existing_model = Path(existing_model)
@@ -278,8 +303,21 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
             aug_pipe = A.Compose([
                 A.NoOp()  # No operation, pass-through transform
             ])
+    
+        # Update new_path to include the 'models' directory and description
+        new_path = Path(model_Path) / description
+    
+        # Create the directories if they don't exist
+        new_path.mkdir(parents=True, exist_ok=True)
+    
+        # Path to save the model with .pkl extension
+        model_path = new_path / f"{description}.pkl"
 
-        model_path = Path(model_path)
+        # Save parameters to a JSON file
+        process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE, EPOCHS=EPOCHS, enable_regression=enable_regression, 
+                        LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR, CLASS_WEIGHTS= CLASS_WEIGHTS,
+                        loss_func=loss_func, self_attention=self_attention, monitor=monitor, VALID_SCENES=VALID_SCENES, 
+                        ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info) 
 
         # Get datatype of training data
         print(data_path)
@@ -314,7 +352,6 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
 
         
 
-
         if enable_regression:
             print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
         else:
@@ -324,8 +361,10 @@ def train_func (data_path, existing_model, model_path, BATCH_SIZE, visualize_dat
                            path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
                            regression=enable_regression, loss_func=loss_func, monitor=monitor,
                            existing_model=existing_model, self_attention=self_attention, export_model_summary=export_model_summary)
+        
 
         learn.export(model_path)
+
 
         if not enable_regression:
             valid_preds, valid_labels = learn.get_preds(dl=dls.valid)
