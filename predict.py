@@ -9,10 +9,39 @@ from pathlib import Path
 from osgeo import gdal
 from fastai.learner import load_learner
 
-from utils import store_tif
 
 
-def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None, large_file=False):
+def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value):
+    """Stores a tif file in a specified folder."""
+    driver = gdal.GetDriverByName('GTiff')
+
+    if len(output_array.shape) == 3:
+        out_ds = driver.Create(str(output_folder), output_array.shape[2], output_array.shape[1], output_array.shape[0],
+                                dtype)
+    else:
+        out_ds = driver.Create(str(output_folder), output_array.shape[1], output_array.shape[0], 1, dtype)
+    out_ds.SetGeoTransform(geo_transform)
+
+    out_ds.SetProjection(geo_proj)
+    if len(output_array.shape) == 3:
+        for b in range(output_array.shape[0]):
+            out_ds.GetRasterBand(b + 1).WriteArray(output_array[b])
+    else:
+        out_ds.GetRasterBand(1).WriteArray(output_array)
+
+    # loop through the image bands to set nodata
+    if nodata_value is not None:
+        for i in range(1, out_ds.RasterCount + 1):
+            # set the nodata value of the band
+            out_ds.GetRasterBand(i).SetNoDataValue(nodata_value)
+
+    out_ds.FlushCache()
+    out_ds = None
+
+
+
+
+def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None, large_file=False, AOI=None, year=None):
     """
     Runs a prediction on all tiles within a folder and stores predictions in the predict_tiles folder
 
@@ -26,9 +55,19 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
     learn = load_learner(Path(predict_model))
+
     path = Path(predict_path)
 
-    output_folder = path / ('predicted_tiles_' + Path(predict_model).stem)
+    # Define the path as the current directory
+    # current_directory = Path(os.getcwd())
+    # Define the 'models' directory
+    # output_folder_ = current_directory / 'Prediction'
+    if not merge:
+        output_folder = path.parent / ('predicted_tiles_' + Path(predict_model).stem)
+    else:
+        output_folder = path.parent 
+        
+    model_name = os.path.basename(predict_model).split('.')[0]
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
@@ -197,7 +236,15 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         else:
             dtype = gdal.GDT_Byte
 
-        store_tif(str(output_folder) + "\\class.tif", merged_raster, dtype,
+
+        # Define the parameters for the name of output:
+        output_file_name_parts = [AOI, year, model_name, "prediction"]
+        output_file_name = "_".join(filter(None, output_file_name_parts)) + ".tif"
+        output_file = os.path.join(output_folder, output_file_name)
+        print(output_file)
+        
+        store_tif(output_file , merged_raster, dtype,
                   [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
                   geoproj_for_merge, nodata)
+
         print(f"Prediction stored in {output_folder}.")
