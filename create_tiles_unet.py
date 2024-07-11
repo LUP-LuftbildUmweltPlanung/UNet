@@ -9,8 +9,6 @@ import rasterio
 import slidingwindow
 from osgeo import gdal
 
-from utils import delete_folder
-
 
 def compute_windows(numpy_image, patch_size, patch_overlap):
     """
