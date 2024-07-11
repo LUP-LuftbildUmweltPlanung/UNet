@@ -1,7 +1,14 @@
+
 from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
+
+import os 
 import time
+import torch
+import pathlib
+import warnings
+import albumentations as A
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -9,18 +16,13 @@ from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 
-import torch
 
-import pathlib
-import os
-import warnings
-import albumentations as A
 
 
 # PARAMETERS
 Create_tiles = False
 Train = False
-Predict = False
+Predict = True
 
 ######################################################
 #################### CREATE TILES ####################
@@ -32,9 +34,9 @@ mask_path = "PATH"
 base_dir = "PATH"
 
 #for prediction patch_overlap = 0.2 to prevent edge artifacts and split = [1] to predict full image
-patch_size = 1024
-patch_overlap = 0.2
-split = [1]
+patch_size = 400
+patch_overlap = 0
+split = [0.8, 0.2]
 
 
 
@@ -42,17 +44,21 @@ split = [1]
 #################### TRAINING ##############################
 ############################################################
 # if using on created tiles, set data_path = base_dir
-data_path = r"PATH"
-model_path = r"PATH"
+data_path = base_dir
+model_path = "PATH" # Define the path to create all the training folders inside it
+description = "Canopy_model_Geometric_aug" # the name of the training folder (e.g. "response"_"specific use case" -> canopycover_augmentationtest)
+info = "str" # Define the necessary input features (e.g. RGBI) and other useful informations 
 existing_model = None #or existing model path for transfer_learning
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 3
-LEARNING_RATE = 0.005
+EPOCHS = 50
+LEARNING_RATE = 0.0001
 enable_regression = False
 visualize_data_example = True
 export_model_summary = True
+save_confusion_matrix = False
 # only relevant for classification
-CODES = ['background', 'unversiegelt', 'teilversiegelt', 'versiegelt', 'versiegelt_haus']
+CODES = ['Background', 'Beschirmung']
+# CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 #CLASS_WEIGHTS = "weighted" #"weighted" #[0.01, 0.3, 0.69]
 #CLASS_WEIGHTS =[19, 4, 6, 35, 3, 38, 85, 5, 52, 123, 54]
@@ -61,7 +67,9 @@ CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 
 #################### PREDICTION ########################
 ########################################################
 predict_path = "PATH"
-predict_model = "PATH"
+predict_model = r"PATH" 
+AOI = "str"
+year = "str"
 merge = False
 regression = False
 # CONFIG END
@@ -73,11 +81,10 @@ regression = False
 
 enable_extra_parameters = True # only for experienced users
 
-self_attention = False
+self_attention = True
 ENCODER_FACTOR = 10  # minimal lr_rate factor
-LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
+LR_FINDER =  None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
-save_confusion_matrix = False
 loss_func = CrossEntropyLossFlat(axis=1) #FocalLossFlat(gamma=2, axis=1)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
@@ -89,24 +96,21 @@ specific_class = None  # None or integer of class -> Only this class will be sto
 large_file = False # If predicted probabilities should be stretched to int8 to increase storage capacity
 max_empty = 0.2  # Maximum no data area in created image crops
 ARCHITECTURE = xresnet34 #xresnet34
+
+# Create an instance of the transforms 
+transforms = True
+n_transform_imgs = 2 # Number of augmented images (default is 2).
 aug_pipe = A.Compose([
             A.HorizontalFlip(p=0.5), # Applies a horizontal flip to the image with a probability of 0.5.
             A.VerticalFlip(p=0.5), # Applies a vertical flip to the image with a probability of 0.5.
-            A.ShiftScaleRotate(p=0.5), # Randomly applies affine transforms: translation, scaling and rotation in one call with a probability of 0.5.
             A.RandomBrightnessContrast( # Randomly changes brightness and contrast of the image with a probability of 0.5.
-                brightness_limit=(-0.1,0.1), 
-                contrast_limit=(-0.1, 0.1), 
-                p=0.5
-            ),
+                 brightness_limit=(-0.1,0.1), 
+                 contrast_limit=(-0.1, 0.1), 
+                 p=0.5
+             ),
             A.CoarseDropout(p=0.5), # Randomly masks out rectangular regions in the image with a probability of 0.5.
-
+            
 ]) # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
-
-n_transform_imgs = 2 # Number of augmented images (default is 2).
-
-
-# Create an instance of the transforms 
-transforms = False
 # EXTRA END
 
 
@@ -134,7 +138,7 @@ def main():
         large_file = False
         max_empty = 0.9
         ARCHITECTURE = xresnet34
-        transforms = None
+        transforms = transforms
         self_attention = False
 
     # Check if CUDA is available
@@ -156,15 +160,18 @@ def main():
 
     if Train:
         #run train function
-        train_func(data_path, existing_model, model_path, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
+        train_func(data_path, existing_model, model_path, description, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, 
-                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs, save_confusion_matrix)
+                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs, save_confusion_matrix, info)
+        
 
     if Predict:
-        save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file)
+        save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI, year)
 
     end_time = time.time()
     print(f"The operation took {(end_time - start_time):.2f} seconds or {((end_time - start_time) / 60):.2f} minutes")
 
 if __name__ == '__main__':
     main()
+
+            
