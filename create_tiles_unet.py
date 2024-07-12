@@ -3,7 +3,7 @@ import shutil
 import warnings
 from glob import glob
 from pathlib import Path
-
+import json
 import numpy as np
 import rasterio
 import slidingwindow
@@ -427,3 +427,25 @@ def split_raster(path_to_raster=None,
 
     if include_mask:
         create_train_test_split(base_dir, split=split)
+
+
+# Load the JSON Params 
+def load_json_params(json_path):
+    """
+    Load parameters from a JSON file and extract the values.
+
+    Parameters:
+    -----------
+    json_path: Path to the JSON file containing the parameters.
+
+    Returns:
+    --------
+    params: A dictionary containing the parameters.
+    """
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
+    
+    with open(json_path, 'r') as json_file:
+        params = json.load(json_file)
+    
+    return params
