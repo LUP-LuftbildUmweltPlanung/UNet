@@ -42,14 +42,14 @@ split = [0.8, 0.2]
 ############################################################
 #################### TRAINING ##############################
 ############################################################
-# The path where the data is located. If using created tiles, set data_path to base_dir.
+# If using created tiles, set data_path to base_dir.
 data_path = base_dir
 model_path = "PATH" # The path where the model directories will be created.
 description = "str" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
 info = "str" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
 existing_model = None #or existing model path for transfer_learning
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 50 # The number of epochs to train the model.
+EPOCHS = 50 
 LEARNING_RATE = 0.001
 enable_regression = False
 visualize_data_example = True
