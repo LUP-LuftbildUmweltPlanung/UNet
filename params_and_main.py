@@ -1,4 +1,3 @@
-
 from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
@@ -43,19 +42,19 @@ split = [0.8, 0.2]
 ############################################################
 #################### TRAINING ##############################
 ############################################################
-# if using on created tiles, set data_path = base_dir
+# The path where the data is located. If using created tiles, set data_path to base_dir.
 data_path = base_dir
-model_path = "PATH" # Define the path to create all the training folders inside it
-description = "Canopy_model_Geometric_aug" # the name of the training folder (e.g. "response"_"specific use case" -> canopycover_augmentationtest)
-info = "str" # Define the necessary input features (e.g. RGBI) and other useful informations 
+model_path = "PATH" # The path where the model directories will be created.
+description = "str" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
+info = "str" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
 existing_model = None #or existing model path for transfer_learning
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 50
-LEARNING_RATE = 0.0001
+EPOCHS = 50 # The number of epochs to train the model.
+LEARNING_RATE = 0.001
 enable_regression = False
 visualize_data_example = True
 export_model_summary = True
-save_confusion_matrix = False
+save_confusion_matrix = False # A boolean to enable or disable saving the confusion matrix table.
 # only relevant for classification
 CODES = ['Background', 'Beschirmung']
 # CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
@@ -66,11 +65,11 @@ CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 
 ########################################################
 #################### PREDICTION ########################
 ########################################################
-predict_path = "PATH"
-predict_model = r"PATH" 
-AOI = "str"
-year = "str"
-merge = False
+predict_path = "PATH" 
+predict_model = r"PATH"  # The path to the trained model that will be used to predict the image tiles. This path should be constructed as "model_path/description/description.pkl"
+AOI = "str" # Area of Interest (AOI). This parameter is used to append the output TIFF file to define the city of the prediction data.
+year = "str" # The year of the prediction data. To append the output TIFF file to define the year.
+merge = False # A boolean to decide whether to merge the output prediction tiles into a single file or keep them as separate tiles.
 regression = False
 # CONFIG END
 
