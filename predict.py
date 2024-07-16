@@ -44,7 +44,7 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodat
     out_ds = None
     
 # create valid figures 
-def valid_predict(output_folder, truth_label, regression=False, merge=False):
+def plot_valid_predict(output_folder, truth_label, regression=False, merge=False):
     assert not (merge and regression), "Both merge and regression cannot be True"
 
     if merge:
@@ -151,9 +151,6 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
     path = Path(predict_path)
 
     # Define the path as the current directory
-    # current_directory = Path(os.getcwd())
-    # Define the 'models' directory
-    # output_folder_ = current_directory / 'Prediction'
     if not merge:
         output_folder = path.parent / ('predicted_tiles_' + Path(predict_model).stem)
     else:
@@ -238,8 +235,9 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans,geoproj, None)
             else:
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans, geoproj, None)
+    # plot the confusion matric and classification report
     if validation_vision:
-        valid_predict(output_folder, predict_path, regression, merge)
+        plot_valid_predict(output_folder, predict_path, regression, merge)
     if merge:
         # go through the information for all tiles, find upper left most corner and lower right most corner
         # --> these define the extend of the final output
