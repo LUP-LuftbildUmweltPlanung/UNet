@@ -8,9 +8,14 @@ from tqdm import tqdm
 from pathlib import Path
 from osgeo import gdal
 from fastai.learner import load_learner
+from sklearn.metrics import confusion_matrix, classification_report
+import rasterio
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
 
 
-
+# save the predicted tiles
 def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value):
     """Stores a tif file in a specified folder."""
     driver = gdal.GetDriverByName('GTiff')
@@ -37,11 +42,98 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodat
 
     out_ds.FlushCache()
     out_ds = None
+    
+# create valid figures 
+def valid_predict(output_folder, truth_label, regression=False, merge=False):
+    assert not (merge and regression), "Both merge and regression cannot be True"
+
+    if merge:
+        raise ValueError("It's not possible to calculate the confusion matrix with merged tiles")
+    elif regression:
+        raise ValueError("This function is just for classification problems")
+
+    # Create a new folder to save the figures
+    valid_path = os.path.join(output_folder, "Valid_figures")
+    os.makedirs(valid_path, exist_ok=True)
+    
+    # Replace the last part of the truth_label path
+    truth_label = truth_label.replace('img_tiles', 'mask_tiles')
+
+    y_true = []
+    y_pred = []
+    
+    for file_name in os.listdir(output_folder):
+        if file_name.endswith('.tif'):
+            pred_path = os.path.join(output_folder, file_name)
+            true_path = os.path.join(truth_label, file_name)
+            
+            with rasterio.open(pred_path) as src_pred:
+                pred_data = src_pred.read(1)  # Assuming single band for class labels
+                
+            with rasterio.open(true_path) as src_true:
+                true_data = src_true.read(1)  # Assuming single band for class labels
+            
+            # Determine the most frequent class in the tile
+            pred_class = np.argmax(np.bincount(pred_data.flatten()))
+            true_class = np.argmax(np.bincount(true_data.flatten()))
+            
+            y_true.append(true_class)
+            y_pred.append(pred_class)
+    
+    if not y_true or not y_pred:
+        raise ValueError("No valid tiles found for evaluation")
+    
+    # Compute the confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    class_report = classification_report(y_true, y_pred, zero_division=1)
+    
+    # Plot the classification report and get class names
+    report_data = []
+    class_names = []
+    lines = class_report.split('\n')
+    for line in lines[2:-3]:  # Extract just the values
+        row_data = line.split()
+        if len(row_data) < 5:  # Check if the row_data has the expected number of elements
+            continue
+        class_names.append(row_data[0])
+        row = {
+            'class': row_data[0],
+            'precision': float(row_data[1]),
+            'recall': float(row_data[2]),
+            'f1_score': float(row_data[3]),
+            'support': int(row_data[4])
+        }
+        report_data.append(row)
+    
+    dataframe = pd.DataFrame.from_dict(report_data)
+    
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(dataframe.set_index('class'), annot=True, fmt='.2f', cmap='crest')
+    plt.title('Classification Report')
+    classification_report_path = os.path.join(valid_path, "classification_report.png")
+    plt.savefig(classification_report_path)
+    plt.show()
+    
+    # Plot the confusion matrix with class names
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='crest', xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    confusion_matrix_path = os.path.join(valid_path, "Confusion_Matrix.png")
+    plt.savefig(confusion_matrix_path)
+    plt.show()
+    
+    print("Confusion Matrix:")
+    print(cm)
+    print("\nClassification Report:")
+    print(class_report)
+
+    return cm, class_report
 
 
-
-
-def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None, large_file=False, AOI=None, year=None):
+def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None,
+                     large_file=False, AOI=None, year=None, validation_vision = True):
     """
     Runs a prediction on all tiles within a folder and stores predictions in the predict_tiles folder
 
@@ -117,6 +209,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
             predictions_for_merge_size += class_lst.nbytes
             geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
 
+
         else:
             if regression:
                 pass
@@ -145,7 +238,8 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans,geoproj, None)
             else:
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans, geoproj, None)
-
+    if validation_vision:
+        valid_predict(output_folder, predict_path, regression, merge)
     if merge:
         # go through the information for all tiles, find upper left most corner and lower right most corner
         # --> these define the extend of the final output
@@ -246,5 +340,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         store_tif(output_file , merged_raster, dtype,
                   [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
                   geoproj_for_merge, nodata)
+
+        
 
         print(f"Prediction stored in {output_folder}.")
