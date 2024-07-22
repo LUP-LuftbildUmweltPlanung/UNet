@@ -71,6 +71,7 @@ AOI = "str" # Area of Interest (AOI). This parameter is used to append the outpu
 year = "str" # The year of the prediction data. To append the output TIFF file to define the year.
 merge = False # A boolean to decide whether to merge the output prediction tiles into a single file or keep them as separate tiles.
 regression = False
+validation_vision = True # Confusion matrix and classification report figures, Keep merge and regression False to work!
 # CONFIG END
 
 
@@ -165,7 +166,7 @@ def main():
         
 
     if Predict:
-        save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI, year)
+        save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI, year, validation_vision)
 
     end_time = time.time()
     print(f"The operation took {(end_time - start_time):.2f} seconds or {((end_time - start_time) / 60):.2f} minutes")
