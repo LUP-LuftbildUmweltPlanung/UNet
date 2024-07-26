@@ -95,6 +95,7 @@ all_classes = False # If all class predictions should be stored
 specific_class = None  # None or integer of class -> Only this class will be stored
 large_file = False # If predicted probabilities should be stretched to int8 to increase storage capacity
 max_empty = 0.2  # Maximum no data area in created image crops
+class_zero = False # Enable for seperating 0 prediction class from nodata
 ARCHITECTURE = xresnet34 #xresnet34
 
 # Create an instance of the transforms 
@@ -155,18 +156,19 @@ def main():
             patch_overlap=patch_overlap,
             base_dir=base_dir,
             split=split,
-            max_empty=max_empty
+            max_empty=max_empty,
+            class_zero=class_zero
         )
 
     if Train:
         #run train function
         train_func(data_path, existing_model, model_path, description, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES, 
-                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs, save_confusion_matrix, info)
+                CODES, transforms, export_model_summary,  aug_pipe, n_transform_imgs, save_confusion_matrix, info, class_zero)
         
 
     if Predict:
-        save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI, year, validation_vision)
+        save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI, year, validation_vision, class_zero)
 
     end_time = time.time()
     print(f"The operation took {(end_time - start_time):.2f} seconds or {((end_time - start_time) / 60):.2f} minutes")
