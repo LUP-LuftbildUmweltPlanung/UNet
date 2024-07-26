@@ -3,17 +3,20 @@ import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+# import seaborn as sn
 import shutil
 import sys
+# from sklearn.metrics import confusion_matrix, classification_report
 from torch import nn, Tensor
 import json
 from pathlib import Path
 from typing import Optional
+# from IPython.display import display
 import albumentations as A
 
 from data import create_data_block
-from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, SegmentationAlbumentationsTransform, process_and_save_params
-
+from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, \
+    SegmentationAlbumentationsTransform, process_and_save_params
 
 import fastai.vision.models as models
 from fastai.vision.core import imagenet_stats
@@ -35,9 +38,6 @@ from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
 
 
-
-
-
 def load_split_raster_params(json_path):
     """
     Load parameters from a JSON file and extract the values.
@@ -52,12 +52,11 @@ def load_split_raster_params(json_path):
     """
     if not os.path.exists(json_path):
         raise FileNotFoundError(f"JSON file not found: {json_path}")
-    
+
     with open(json_path, 'r') as json_file:
         params = json.load(json_file)
-    
-    return params
 
+    return params
 
 
 def _add_norm(dls, meta, pretrained):
@@ -87,6 +86,7 @@ _xresnet_meta = {'cut': -4, 'split': _xresnet_split, 'stats': imagenet_stats}
 
 class Learner_adjust(Learner):
     """Edits the fastai Learner predict function to work with regression output."""
+
     def predict(self, item, rm_type_tfms=None, with_input=False):
         """Only contains the data-handling necessary to return regression outputs."""
         dl = self.dls.test_dl([Path(item)], rm_type_tfms=rm_type_tfms, num_workers=0)
@@ -139,7 +139,8 @@ def unet_learner_MS(dls, arch, pretrained=True,
     else:
         n_out = len(dls.vocab)
     model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
-                                              self_attention=self_attention, y_range=None, norm_type=norm_type, last_cross=True,
+                                              self_attention=self_attention, y_range=None, norm_type=norm_type,
+                                              last_cross=True,
                                               bottle=False), dls.device)
 
     splitter = ifnone(splitter, meta['split'])
@@ -208,7 +209,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     cbs = [SaveModelCallback(monitor=monitor, comp=comp, fname='best-model'), CSVLogger()]
 
     loss_func.func.weight = weights
-    #print('weights_tensor: ',loss_func.func.weight)
+    # print('weights_tensor: ',loss_func.func.weight)
 
     if existing_model is None:
         learn = unet_learner_MS(dls,  # DataLoaders
@@ -221,18 +222,18 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
                                 self_attention=self_attention
                                 )
     else:
-        learn=load_learner(existing_model)
-        learn.dls=dls
+        learn = load_learner(existing_model)
+        learn.dls = dls
         learn.add_cb(CSVLogger())
-        learn.loss_func=loss_func
-        learn.opt_func=Adam
+        learn.loss_func = loss_func
+        learn.opt_func = Adam
 
-    #save model summary
+    # save model summary
     if export_model_summary:
-        default_stdout =sys.stdout
+        default_stdout = sys.stdout
         summary_path = str(path).rsplit('.', 1)[0] + "_model_summary.txt"
         sys.stdout = open(summary_path, 'w')
-        print('Class_weights:',class_weights)
+        print('Class_weights:', class_weights)
         print(learn.summary())
         sys.stdout.close()
         sys.stdout = default_stdout
@@ -251,7 +252,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     learn.recorder.plot_loss()
     # move history
     hist_path = Path(str(path).rsplit('.', 1)[0] + "_history.csv")
-    #os.rename(learn.path / learn.csv_logger.fname, hist_path)
+    # os.rename(learn.path / learn.csv_logger.fname, hist_path)
     shutil.move(learn.path / learn.csv_logger.fname, hist_path)
     learn.remove_cb(CSVLogger)
 
@@ -260,7 +261,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     valid_loss = hist['valid_loss'].tolist()
 
     plt.figure(figsize=(7, 7))
-    #plt.plot(train_loss, label='Training')
+    # plt.plot(train_loss, label='Training')
     plt.plot(valid_loss, label='Validation')
 
     if monitor not in ['train_loss', 'valid_loss']:
@@ -280,84 +281,89 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
     return learn
 
+
 #### define train function to be able to use for train_multi and new params approach
 
-def train_func (data_path, existing_model,model_Path, description, BATCH_SIZE, visualize_data_example, enable_regression, CLASS_WEIGHTS,
-        ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention, VALID_SCENES,
-        CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info):
-        # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
-        data_path = Path(data_path)
+def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,
+               enable_regression, CLASS_WEIGHTS,
+               ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
+               VALID_SCENES,
+               CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info,
+               class_zero):
+    # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
+    data_path = Path(data_path)
 
+    if existing_model is not None:
+        existing_model = Path(existing_model)
+    if transforms:
+        print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
+        # Use the imported aug_pipe
+        transforms = SegmentationAlbumentationsTransform(aug_pipe, n_transform_imgs=n_transform_imgs)
+    else:
+        # Define a default augmentation pipeline
+        aug_pipe = A.Compose([
+            A.NoOp()  # No operation, pass-through transform
+        ])
 
-        if existing_model is not None:
-            existing_model = Path(existing_model)
-        if transforms:
-            print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
-            # Use the imported aug_pipe
-            transforms = SegmentationAlbumentationsTransform(aug_pipe, n_transform_imgs=n_transform_imgs)
-        else:
-            # Define a default augmentation pipeline
-            aug_pipe = A.Compose([
-                A.NoOp()  # No operation, pass-through transform
-            ])
-    
-        # Update new_path to include the 'models' directory and description
-        new_path = Path(model_Path) / description
-    
-        # Create the directories if they don't exist
-        new_path.mkdir(parents=True, exist_ok=True)
-    
-        # Path to save the model with .pkl extension
-        model_path = new_path / f"{description}.pkl"
+    # Update new_path to include the 'models' directory and description
+    new_path = Path(model_Path) / description
 
-        # Save parameters to a JSON file
-        process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE, EPOCHS=EPOCHS, enable_regression=enable_regression, 
-                        LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR, CLASS_WEIGHTS= CLASS_WEIGHTS,
-                        loss_func=loss_func, self_attention=self_attention, monitor=monitor, VALID_SCENES=VALID_SCENES, 
-                        ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info) 
+    # Create the directories if they don't exist
+    new_path.mkdir(parents=True, exist_ok=True)
 
-        # Get datatype of training data
-        print(data_path)
-        dtype = get_datatype(data_path)
-        # Data Block for Reference Storage
-        db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
-                               transforms=transforms)
-        if enable_regression:
-            CLASS_WEIGHTS = [1]
-        elif isinstance(CLASS_WEIGHTS, str):
-            if CLASS_WEIGHTS == "even":
-                CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
-            elif CLASS_WEIGHTS == "weighted":
-                CLASS_WEIGHTS = get_class_weights(data_path, db)
+    # Path to save the model with .pkl extension
+    model_path = new_path / f"{description}.pkl"
 
-        dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
-        dls.vocab = CODES
+    # Save parameters to a JSON file
+    process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE,
+                            EPOCHS=EPOCHS, enable_regression=enable_regression,
+                            LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR,
+                            CLASS_WEIGHTS=CLASS_WEIGHTS,
+                            loss_func=loss_func, self_attention=self_attention, monitor=monitor,
+                            VALID_SCENES=VALID_SCENES,
+                            ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
+                            class_zero=class_zero)
 
-        inputs, targets = dls.one_batch()
-        if visualize_data_example:
-            inputs_np = inputs.cpu().detach().numpy()
-            targets_np = targets.cpu().detach().numpy()
-            visualize_data(inputs_np, model_path)
-            os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
-            visualize_data(targets_np, model_path)
-            os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
+    # Get datatype of training data
+    print(data_path)
+    dtype = get_datatype(data_path)
+    # Data Block for Reference Storage
+    db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
+                           transforms=transforms)
+    if enable_regression:
+        CLASS_WEIGHTS = [1]
+    elif isinstance(CLASS_WEIGHTS, str):
+        if CLASS_WEIGHTS == "even":
+            CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
+        elif CLASS_WEIGHTS == "weighted":
+            CLASS_WEIGHTS = get_class_weights(data_path, db)
 
-        print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
-        # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
-        print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
-        print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
+    dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
+    dls.vocab = CODES
 
-        
+    inputs, targets = dls.one_batch()
+    if visualize_data_example:
+        inputs_np = inputs.cpu().detach().numpy()
+        targets_np = targets.cpu().detach().numpy()
+        visualize_data(inputs_np, model_path)
+        os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
+        visualize_data(targets_np, model_path)
+        os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
 
-        if enable_regression:
-            print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
-        else:
-            print(f"Class weights: {CLASS_WEIGHTS}")
+    print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
+    # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
+    print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
+    print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
 
-        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
-                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
-                           regression=enable_regression, loss_func=loss_func, monitor=monitor,
-                           existing_model=existing_model, self_attention=self_attention, export_model_summary=export_model_summary)
-        
+    if enable_regression:
+        print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
+    else:
+        print(f"Class weights: {CLASS_WEIGHTS}")
 
-        learn.export(model_path)
+    learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
+                       path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
+                       regression=enable_regression, loss_func=loss_func, monitor=monitor,
+                       existing_model=existing_model, self_attention=self_attention,
+                       export_model_summary=export_model_summary)
+
+    learn.export(model_path)
