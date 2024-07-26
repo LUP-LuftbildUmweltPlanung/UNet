@@ -9,6 +9,7 @@ import rasterio
 import slidingwindow
 from osgeo import gdal
 
+
 def delete_folder(folder_path):
     """Deletes an empty folder by given path"""
     # checking whether folder exists or not
@@ -254,7 +255,8 @@ def split_raster(path_to_raster=None,
                  patch_size=400,
                  patch_overlap=0.20,
                  split=None,
-                 max_empty=0.9):
+                 max_empty=0.9,
+                 class_zero=False):
     """
     Divide a large tile into smaller arrays. Each crop will be saved to file.
     For not perfectly overlapping raster size, the overlapping area will be used (assumes roughly similar pixel size).
@@ -297,6 +299,9 @@ def split_raster(path_to_raster=None,
         mask_dtype = str(rasterio.open(path_to_mask).dtypes[0])
         numpy_image_mask = rasterio.open(path_to_mask).read()
         nodata_mask = rasterio.open(path_to_mask).nodata
+        if class_zero:
+            numpy_image_mask[numpy_image_mask != nodata_mask] += 1
+            #print(np.unique(numpy_image_mask))
 
         if np.round(img_l, decimals=3) != np.round(msk_l, decimals=3) \
                 or np.round(img_t, decimals=3) != np.round(msk_t, decimals=3) \
@@ -429,7 +434,7 @@ def split_raster(path_to_raster=None,
         create_train_test_split(base_dir, split=split)
 
 
-# Load the JSON Params 
+# Load the JSON Params
 def load_json_params(json_path):
     """
     Load parameters from a JSON file and extract the values.
@@ -444,8 +449,8 @@ def load_json_params(json_path):
     """
     if not os.path.exists(json_path):
         raise FileNotFoundError(f"JSON file not found: {json_path}")
-    
+
     with open(json_path, 'r') as json_file:
         params = json.load(json_file)
-    
+
     return params
