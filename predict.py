@@ -54,8 +54,6 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodat
 
 # create valid figures
 def plot_valid_predict(output_folder, predict_path, regression=False, merge=False, class_zero=False):
-    assert not (merge and regression), "Both merge and regression cannot be True"
-
     if merge:
         raise ValueError("It's not possible to calculate the confusion matrix with merged tiles")
     elif regression:
