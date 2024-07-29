@@ -27,8 +27,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 
 ### Executing program
 
-* set parameters in params.py
-* run params_and_main.py
+* set parameters and run in params_and_main.py
 
 ## Help/Known Issues
 
