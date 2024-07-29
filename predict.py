@@ -16,7 +16,7 @@ import pandas as pd
 
 
 # save the predicted tiles
-def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value, class_zero= False):
+def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value, class_zero=False):
     """Stores a tif file in a specified folder."""
     driver = gdal.GetDriverByName('GTiff')
 
@@ -28,7 +28,7 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodat
     out_ds.SetGeoTransform(geo_transform)
 
     out_ds.SetProjection(geo_proj)
-    
+
     if class_zero:
         # Process the output array to handle class definitions
         processed_array = np.where(output_array == 0, nodata_value, output_array - 1)  # Class 0 as NaN and decrement other classes by 1
@@ -36,8 +36,8 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodat
         processed_array = output_array
 
 
-    if len(output_array.shape) == 3:
-        for b in range(output_array.shape[0]):
+    if len(processed_array.shape) == 3:
+        for b in range(processed_array.shape[0]):
             out_ds.GetRasterBand(b + 1).WriteArray(processed_array[b])
     else:
         out_ds.GetRasterBand(1).WriteArray(processed_array)
@@ -53,7 +53,7 @@ def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodat
 
 
 # create valid figures
-def plot_valid_predict(output_folder, predict_path, regression=False, merge=False, class_zero= False):
+def plot_valid_predict(output_folder, predict_path, regression=False, merge=False, class_zero=False):
     assert not (merge and regression), "Both merge and regression cannot be True"
 
     if merge:
@@ -159,6 +159,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         all_classes :       If the prediction should contain all prediction values for all classes (default=False)
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
+
     learn = load_learner(Path(predict_model))
 
     path = Path(predict_path)
@@ -249,10 +250,10 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                 class_lst = np.around(class_lst).astype(np.int8)
                 dtype = gdal.GDT_Byte
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
-                          None)
+                          None, class_zero)
             else:
                 store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
-                          geoproj, None)
+                          geoproj, None, class_zero)
     if validation_vision:
         plot_valid_predict(output_folder, predict_path, regression, merge, class_zero)
     if merge:
@@ -353,6 +354,6 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
 
         store_tif(output_file, merged_raster, dtype,
                   [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
-                  geoproj_for_merge, nodata)
+                  geoproj_for_merge, nodata, class_zero)
 
         print(f"Prediction stored in {output_folder}.")
