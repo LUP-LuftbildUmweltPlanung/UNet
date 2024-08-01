@@ -27,8 +27,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 
 ### Executing program
 
-* set parameters in params.py
-* run main_unet.py
+* set parameters and run in params_and_main.py
 
 ## Help/Known Issues
 
@@ -38,8 +37,11 @@ The repository contains all code necessary to preprocess large tif-images, run t
 
 ## Authors
 
-* Benjamin Stöckigt
-* Malik-Manel Hashim
+* [Benjamin Stöckigt](https://github.com/benjaminstoeckigt)
+* [Malik-Manel Hashim](https://github.com/irukandi) 
+* [Sebastian Lehmler](https://github.com/SebastianLeh)
+* [Shadi Ghantous](https://github.com/Shadiouss)
+
 
 ## Version History
 

@@ -3,13 +3,28 @@ import shutil
 import warnings
 from glob import glob
 from pathlib import Path
-
+import json
 import numpy as np
 import rasterio
 import slidingwindow
 from osgeo import gdal
 
-from utils import delete_folder
+
+def delete_folder(folder_path):
+    """Deletes an empty folder by given path"""
+    # checking whether folder exists or not
+    if os.path.exists(folder_path):
+
+        # checking whether the folder is empty or not
+        if len(os.listdir(folder_path)) == 0:
+            # removing the file using the os.remove() method
+            os.rmdir(folder_path)
+        else:
+            # messaging saying folder not empty
+            print("Folder is not empty")
+    else:
+        # file not found message
+        print("Folder not found in the directory")
 
 
 def compute_windows(numpy_image, patch_size, patch_overlap):
@@ -240,7 +255,8 @@ def split_raster(path_to_raster=None,
                  patch_size=400,
                  patch_overlap=0.20,
                  split=None,
-                 max_empty=0.9):
+                 max_empty=0.9,
+                 class_zero=False):
     """
     Divide a large tile into smaller arrays. Each crop will be saved to file.
     For not perfectly overlapping raster size, the overlapping area will be used (assumes roughly similar pixel size).
@@ -283,6 +299,9 @@ def split_raster(path_to_raster=None,
         mask_dtype = str(rasterio.open(path_to_mask).dtypes[0])
         numpy_image_mask = rasterio.open(path_to_mask).read()
         nodata_mask = rasterio.open(path_to_mask).nodata
+        if class_zero:
+            numpy_image_mask[numpy_image_mask != nodata_mask] += 1
+            #print(np.unique(numpy_image_mask))
 
         if np.round(img_l, decimals=3) != np.round(msk_l, decimals=3) \
                 or np.round(img_t, decimals=3) != np.round(msk_t, decimals=3) \
@@ -413,3 +432,25 @@ def split_raster(path_to_raster=None,
 
     if include_mask:
         create_train_test_split(base_dir, split=split)
+
+
+# Load the JSON Params
+def load_json_params(json_path):
+    """
+    Load parameters from a JSON file and extract the values.
+
+    Parameters:
+    -----------
+    json_path: Path to the JSON file containing the parameters.
+
+    Returns:
+    --------
+    params: A dictionary containing the parameters.
+    """
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
+
+    with open(json_path, 'r') as json_file:
+        params = json.load(json_file)
+
+    return params
