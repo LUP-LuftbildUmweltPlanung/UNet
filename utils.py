@@ -209,10 +209,9 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
-
     split_idx = 0  # Train
 
-    def __init__(self, aug, n_transform_imgs=2, **kwargs):
+    def __init__(self, dtype, aug, n_transform_imgs=2, **kwargs):
         """
         Initializes the SegmentationAlbumentationsTransform.
 
@@ -223,6 +222,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         super().__init__(**kwargs)
         self.aug = aug
         self.n_transform_imgs = n_transform_imgs
+        self.dtype = dtype
 
     def encodes(self, x):
         """
@@ -234,34 +234,15 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         Returns:
             Tensor or tuple of Tensors: Transformed images and masks (if provided).
         """
-        try:
-            batch_img, batch_mask = x  # Expecting tuple (img, mask)
-        except ValueError:
-            batch_img = x  # Only one value provided, assuming it's just the image
-            batch_mask = None  # No mask provided
-            # Check if n_transform_imgs is greater than or equal to the batch size
+        # Extract images and masks
+        batch_img, batch_mask = x  # Expecting tuple (img, mask)
+        
+        # Check if n_transform_imgs is greater than or equal to the batch size
         if len(batch_img) < self.n_transform_imgs:
             raise ValueError(f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be less than the batch size ({len(batch_img)}).")
 
-        
         transformed_images = []
         transformed_masks = []
-        
-        if batch_mask is None:
-            split_idx = 1  # Valid
-            for img in batch_img:  # Ensure this iterates correctly over a batch
-                # Ensure the image has the correct dimensions [B, C, H, W] -> [B, H, W, C] for Albumentations
-                if img.dim() == 4:
-                    img_np = img.permute(0, 2, 3, 1).cpu().numpy()  # Change to [B, H, W, C]
-            
-                    # Apply augmentation to each image individually in the batch
-                    try:
-                        transformed = self.aug(image=img_np[0])  # Apply to the first (or only) image in the batch
-                        img_aug = np.transpose(transformed['image'], (2, 0, 1))
-                        transformed_images.append(TensorImage(torch.from_numpy(img_aug).unsqueeze(0)))  # Re-add batch dimension
-                    except Exception as e:
-                        print("Error during augmentation:", e)
-            return torch.stack(transformed_images)  # Stack to get [B, C, H, W]
         
         # Process each image and mask in the last proportion of the batch
         for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
@@ -272,6 +253,12 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             # Ensure tensor is on CPU before converting to numpy array
             img_np = img.cpu().numpy()
             mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
+            if self.dtype == 'int16':
+                img_np /= 65535
+            elif self.dtype == 'int8':
+                img_np /= 255
+            else:
+                ValueError("The data_type should be int8 or int16, your data not valid")
         
             # Apply augmentation
             aug = self.aug(image=img_np, mask=mask_np)
@@ -391,12 +378,12 @@ def process_and_save_params(data_path, aug_pipe, model_path, description,transfo
     params['data_type'] = data_type
     params['number_of_bands'] = number_of_bands
     params['aug_params_'] = aug_params_
-      # Remove specific keys from params
+    # Remove specific keys from params
     for key in ['data_path', 'aug_pipe', 'model_path', 'description']:
           params.pop(key, None)
 
     
-        # Conditionally delete specific keys
+    # Conditionally delete specific keys
     if not transforms:
         params.pop('aug_params_', None)
         # Remove specific keys from kwargs if necessary
@@ -423,17 +410,6 @@ def process_and_save_params(data_path, aug_pipe, model_path, description,transfo
 
     # Convert the parameters dictionary to a JSON string
     json_string = json.dumps(params, indent=4, default=default_converter)
-
-    # # Use regex to format the JSON string as desired
-    # formatted_json_string = re.sub(r'(\d),\s+', r'\1, ', json_string)
-
-    # # Ensure specific keys are printed in one line
-    # formatted_json_string = re.sub(
-    #     r'("CODES":\s*\[)([^\]]*)(\])',
-    #     lambda m: f'{m.group(1)}{" ".join(m.group(2).split())}{m.group(3)}',
-    #     json_string
-    # )
-    # Ensure specific keys are printed in one line
 
     formatted_json_string = re.sub(
         r'("CODES":\s*\[)([^\]]*)(\])|("VALID_SCENES":\s*\[)([^\]]*)(\])|("resolution":\s*\[)([^\]]*)(\])',
