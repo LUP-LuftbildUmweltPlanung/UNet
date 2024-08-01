@@ -138,7 +138,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
         n_out = 1
     else:
         n_out = len(dls.vocab)
-    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
+    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=False, blur_final=False,
                                               self_attention=self_attention, y_range=None, norm_type=norm_type,
                                               last_cross=True,
                                               bottle=False), dls.device)
@@ -235,6 +235,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         sys.stdout = open(summary_path, 'w')
         print('Class_weights:', class_weights)
         print(learn.summary())
+        print(learn.model)
         sys.stdout.close()
         sys.stdout = default_stdout
 
@@ -292,13 +293,16 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                class_zero):
     # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
     data_path = Path(data_path)
-
+    # Get datatype of training data
+    print(data_path)
+    dtype = get_datatype(data_path)
+    
     if existing_model is not None:
         existing_model = Path(existing_model)
     if transforms:
         print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
         # Use the imported aug_pipe
-        transforms = SegmentationAlbumentationsTransform(aug_pipe, n_transform_imgs=n_transform_imgs)
+        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
     else:
         # Define a default augmentation pipeline
         aug_pipe = A.Compose([
@@ -324,9 +328,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                             ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
                             class_zero=class_zero)
 
-    # Get datatype of training data
-    print(data_path)
-    dtype = get_datatype(data_path)
+
     # Data Block for Reference Storage
     db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
                            transforms=transforms)
@@ -340,7 +342,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
 
     dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
     dls.vocab = CODES
-
+                   
     inputs, targets = dls.one_batch()
     if visualize_data_example:
         inputs_np = inputs.cpu().detach().numpy()
