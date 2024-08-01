@@ -90,13 +90,7 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
     ----------
         Only necessary if code is based on anything
     """
-    if dtype == 'int16':
-        ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True),
-                                  batch_tfms=Int16ToFloatTensor)
-    else:
-        ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True),
-                                  batch_tfms=IntToFloatTensor)
-
+    ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True))
     if regression:
         blocks = (ImgBlock, RegressionBlock())
     else:
