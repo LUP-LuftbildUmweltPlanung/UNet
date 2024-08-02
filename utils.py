@@ -209,7 +209,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
-    split_idx = 0  # Apply Augmentations for 0 = Train, 1 = Validation, None = Both
+    split_idx = None  # Apply Augmentations for 0 = Train, 1 = Validation, None = Both
 
     def __init__(self, dtype, aug, n_transform_imgs=2, **kwargs):
         """
