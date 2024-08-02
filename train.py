@@ -308,6 +308,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         aug_pipe = A.Compose([
             A.NoOp()  # No operation, pass-through transform
         ])
+        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=BATCH_SIZE)
 
     # Update new_path to include the 'models' directory and description
     new_path = Path(model_Path) / description
