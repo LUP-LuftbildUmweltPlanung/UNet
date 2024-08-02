@@ -209,7 +209,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
-    split_idx = 0  # Train
+    split_idx = 0  # Apply Augmentations for 0 = Train, 1 = Validation, None = Both
 
     def __init__(self, dtype, aug, n_transform_imgs=2, **kwargs):
         """
@@ -262,6 +262,9 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         
             # Apply augmentation
             aug = self.aug(image=img_np, mask=mask_np)
+
+            # After augmentation, return to Uint8 Image for the Dataloader 
+            aug['image'] *= 255
         
             # After augmentation, transpose image back to [C, H, W]
             img_aug = np.transpose(aug['image'], (2, 0, 1))
