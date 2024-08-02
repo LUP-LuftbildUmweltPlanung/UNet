@@ -106,9 +106,9 @@ aug_pipe = A.Compose([
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.
 #    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
-#        brightness_limit=(-0.1, 0.1),
-#        contrast_limit=(-0.1, 0.1),
-#        p=0.5
+#        brightness_limit=(-0.2, 0.2),
+#        contrast_limit=(-0.2, 0.2),
+#        p=0.7
  #   ),
 #    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
 
