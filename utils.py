@@ -252,21 +252,21 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 # Ensure the image has the correct dimensions [B, C, H, W] -> [B, H, W, C] for Albumentations
                 if img.dim() == 4:
                     img_np = img.permute(0, 2, 3, 1).cpu().numpy()  # Change to [B, H, W, C]
-                    if self.dtype == 'int16':
-                            img_np /= 65535
-                    elif self.dtype == 'int8':
-                            img_np /= 255
-                    else:
-                            ValueError("The data_type should be int8 or int16, your data not valid")
+                if self.dtype == 'int16':
+                    img_np /= 65535
+                elif self.dtype == 'int8':
+                    img_np /= 255
+                else:
+                    ValueError("The data_type should be int8 or int16, your data not valid")
             
                     # Apply augmentation to each image individually in the batch
-                    try:
-                        transformed = self.aug(image=img_np[0])  # Apply to the first (or only) image in the batch
-                        # After augmentation, return to Uint8 Image for the Dataloader 
-                        aug['image'] *= 255
-                        img_aug = np.transpose(transformed['image'], (2, 0, 1))
-                        transformed_images.append(TensorImage(torch.from_numpy(img_aug).unsqueeze(0)))  # Re-add batch dimension
-                    except Exception as e:
+                try:
+                    transformed = self.aug(image=img_np[0])  # Apply to the first (or only) image in the batch
+                    # After augmentation, return to Uint8 Image for the Dataloader 
+                    aug['image'] *= 255
+                    img_aug = np.transpose(transformed['image'], (2, 0, 1))
+                    transformed_images.append(TensorImage(torch.from_numpy(img_aug).unsqueeze(0)))  # Re-add batch dimension
+                 except Exception as e:
                         print("Error during augmentation:", e)
             return torch.stack(transformed_images)  # Stack to get [B, C, H, W]
         
