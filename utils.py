@@ -226,7 +226,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
     def encodes(self, x):
         """
-        Applies Albumentations augmentations to input images and masks.
+        Applies albumentations augmentations to input images and masks.
 
         Args:
             x (tuple or Tensor): Input data containing images and masks.
@@ -272,34 +272,35 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         
         
         # Process each image and mask in the last proportion of the batch
-        for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
+        else:
+            for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
         
-            # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
-            img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
+                # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
+                img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
             
-            # Ensure tensor is on CPU before converting to numpy array
-            img_np = img.cpu().numpy()
-            mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
-            if self.dtype == 'int16':
-                img_np /= 65535
-            elif self.dtype == 'int8':
-                img_np /= 255
-            else:
-                ValueError("The data_type should be int8 or int16, your data not valid")
+                # Ensure tensor is on CPU before converting to numpy array
+                img_np = img.cpu().numpy()
+                mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
+                if self.dtype == 'int16':
+                    img_np /= 65535
+                elif self.dtype == 'int8':
+                    img_np /= 255
+                else:
+                    ValueError("The data_type should be int8 or int16, your data not valid")
         
-            # Apply augmentation
-            aug = self.aug(image=img_np, mask=mask_np)
+                # Apply augmentation
+                aug = self.aug(image=img_np, mask=mask_np)
 
-            # After augmentation, return to Uint8 Image for the Dataloader 
-            aug['image'] *= 255
+                # After augmentation, return to Uint8 Image for the Dataloader 
+                aug['image'] *= 255
         
-            # After augmentation, transpose image back to [C, H, W]
-            img_aug = np.transpose(aug['image'], (2, 0, 1))
-            mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
+                # After augmentation, transpose image back to [C, H, W]
+                img_aug = np.transpose(aug['image'], (2, 0, 1))
+                mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
         
-            # Convert augmented images and masks back to tensors and append to the transformed lists
-            transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
-            transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
+                # Convert augmented images and masks back to tensors and append to the transformed lists
+                transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
+                transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
         
         
         # Leave the first proportion of the batch unchanged
