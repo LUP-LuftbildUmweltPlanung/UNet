@@ -239,21 +239,14 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
         transformed_images = []
         transformed_masks = []
-        
+
         if batch_mask is None:
-            for img in batch_img: 
-                # Ensure the image has the correct dimensions [B, C, H, W] -> [B, H, W, C] for Albumentations
-                if img.dim() == 4:
-                    img_np = img.permute(0, 2, 3, 1).cpu().numpy()  # Change to [B, H, W, C]
-                    # Apply augmentation to each image individually in the batch
-                    try:
-                        transformed = self.aug(image=img_np[0])  # Apply to the first (or only) image in the batch
-                        img_aug = np.transpose(transformed['image'], (2, 0, 1))
-                        transformed_images.append(
-                            TensorImage(torch.from_numpy(img_aug).unsqueeze(0)))  # Re-add batch dimension
-                    except Exception as e:
-                        print("Error during augmentation:", e)
-            return torch.stack(transformed_images)  # Stack to get [B, C, H, W]
+            batch_img = batch_img[0]
+
+            if self.dtype == 'int16':
+                batch_img /= 255
+
+            return [batch_img]
 
         # Process each image and mask in the last proportion of the batch
         else:
