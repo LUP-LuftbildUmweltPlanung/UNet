@@ -1,6 +1,7 @@
 import glob
 import os
 import warnings
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
@@ -232,10 +233,12 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             batch_img = x  # Only one value is provided, assuming it's just the image
             batch_mask = None  # No mask provided
             # Check if n_transform_imgs is greater than or equal to the batch size
-        if batch_mask is not None:
-            if len(batch_img) < self.n_transform_imgs:
-                raise ValueError(
-                    f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be less than the batch size ({len(batch_img)}).")
+        if not (0 <= self.n_transform_imgs <= 1):
+            raise ValueError(
+                f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be between 0 and 1.")
+            
+        Batch = len(batch_img)   
+        n_transform = math.ceil(Batch * self.n_transform_imgs)
 
         transformed_images = []
         transformed_masks = []
@@ -281,12 +284,11 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
 
         # Leave the first proportion of the batch unchanged
-        if batch_mask is not None:
-            for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))],
-                                 batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
-                # Append the unchanged images and masks to the transformed lists
-                transformed_images.append(img)
-                transformed_masks.append(mask)
+        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))],
+                             batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
+            # Append the unchanged images and masks to the transformed lists
+            transformed_images.append(img)
+            transformed_masks.append(mask)
         # Stack all processed items in the batch back into tensors
         return torch.stack(transformed_images), torch.stack(transformed_masks)
 
