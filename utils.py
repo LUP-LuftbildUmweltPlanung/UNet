@@ -238,7 +238,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be between 0 and 1.")
             
         Batch = len(batch_img)   
-        n_transform = math.ceil(Batch * self.n_transform_imgs)
+        n_transform = math.ceil(Batch * )
 
         transformed_images = []
         transformed_masks = []
@@ -253,8 +253,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
         # Process each image and mask in the last proportion of the batch
         else:
-            for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):],
-                                 batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
+            for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
+                                 batch_mask[int(n_transform - len(batch_img)):]):
 
                 # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
                 img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
@@ -284,8 +284,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
 
         # Leave the first proportion of the batch unchanged
-        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))],
-                             batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
+        for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
+                             batch_mask[:int(n_transform - len(batch_img))]):
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
