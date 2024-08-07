@@ -300,7 +300,8 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
     if existing_model is not None:
         existing_model = Path(existing_model)
     if transforms:
-        print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
+        n_transform = math.ceil( BATCH_SIZE * n_transform_imgs)
+        print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
         # Use the imported aug_pipe
         transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
     else:
