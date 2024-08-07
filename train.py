@@ -138,7 +138,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
         n_out = 1
     else:
         n_out = len(dls.vocab)
-    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=False, blur_final=False,
+    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
                                               self_attention=self_attention, y_range=None, norm_type=norm_type,
                                               last_cross=True,
                                               bottle=False), dls.device)
