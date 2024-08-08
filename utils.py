@@ -1,11 +1,11 @@
 import glob
 import os
 import warnings
-import math
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 import json
+import math
 import re
 import tifffile
 
@@ -235,10 +235,10 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             # Check if n_transform_imgs is greater than or equal to the batch size
         if not (0 <= self.n_transform_imgs <= 1):
             raise ValueError(
-                f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be between 0 and 1.")
-            
-        Batch = len(batch_img)   
-        n_transform = math.ceil(Batch * )
+                f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be between 1 and 0.")
+
+        Batch = len(batch_img)
+        n_transform = math.ceil(Batch * self.n_transform_imgs)
 
         transformed_images = []
         transformed_masks = []
@@ -254,7 +254,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         # Process each image and mask in the last proportion of the batch
         else:
             for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
-                                 batch_mask[int(n_transform - len(batch_img)):]):
+                                 batch_mask[int(n_transform- len(batch_img)):]):
 
                 # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
                 img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
@@ -284,6 +284,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
 
         # Leave the first proportion of the batch unchanged
+
         for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
                              batch_mask[:int(n_transform - len(batch_img))]):
             # Append the unchanged images and masks to the transformed lists
