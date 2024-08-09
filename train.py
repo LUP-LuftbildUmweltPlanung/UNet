@@ -288,7 +288,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                enable_regression, CLASS_WEIGHTS,
                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES,
-               CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info,
+               CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info,
                class_zero):
     # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
     data_path = Path(data_path)
@@ -302,7 +302,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
         print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
         # Use the imported aug_pipe
-        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
+        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
     else:
         # Define a default augmentation pipeline
         aug_pipe = A.Compose([
