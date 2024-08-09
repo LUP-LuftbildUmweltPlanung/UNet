@@ -54,7 +54,6 @@ LEARNING_RATE = 0.0001
 enable_regression = False
 visualize_data_example = True
 export_model_summary = True
-save_confusion_matrix = False # A boolean to enable or disable saving the confusion matrix table.
 # only relevant for classification
 CODES = ['NO_Data', 'Background', 'Beschirmung']
 # CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
@@ -170,7 +169,7 @@ def main():
                    enable_regression, CLASS_WEIGHTS,
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                    VALID_SCENES,
-                   CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info,
+                   CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                    class_zero)
 
     if Predict:
