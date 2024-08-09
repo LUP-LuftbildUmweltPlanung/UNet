@@ -282,7 +282,6 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
     return learn
 
-
 #### define train function to be able to use for train_multi and new params approach
 
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,
