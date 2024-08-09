@@ -101,7 +101,7 @@ ARCHITECTURE = xresnet34  # xresnet34
 
 # Create an instance of the transforms
 transforms = True
-split_idx = None # Apply Augmentations for 0 = Train, 1 = Validation, None = Both, Hint: Apply None with "int16" data type
+split_idx = 0 # Apply Augmentations for 0 = Train, 1 = Validation, None = Both, Hint: Apply None with "int16" data type
 n_transform_imgs = 1 # Percentage of augmented images [0-1]. Decimals always be rounded up.
 aug_pipe = A.Compose([
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
