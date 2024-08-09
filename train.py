@@ -288,7 +288,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                enable_regression, CLASS_WEIGHTS,
                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES,
-               CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info,
+               CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                class_zero):
     # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
     data_path = Path(data_path)
