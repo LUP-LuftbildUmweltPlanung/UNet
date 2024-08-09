@@ -337,7 +337,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                 merged_raster = merged_raster[specific_class]
 
             # define nodata for classification (either background class or where no Tiles were placed)
-            nodata = 0
+            nodata = None
 
         if "float" in str(merged_raster.dtype):
             dtype = gdal.GDT_Float32

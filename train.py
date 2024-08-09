@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-# import seaborn as sn
+import math
 import shutil
 import sys
 # from sklearn.metrics import confusion_matrix, classification_report
@@ -138,7 +138,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
         n_out = 1
     else:
         n_out = len(dls.vocab)
-    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=False, blur_final=False,
+    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
                                               self_attention=self_attention, y_range=None, norm_type=norm_type,
                                               last_cross=True,
                                               bottle=False), dls.device)
@@ -296,11 +296,12 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
     # Get datatype of training data
     print(data_path)
     dtype = get_datatype(data_path)
-    
+
     if existing_model is not None:
         existing_model = Path(existing_model)
     if transforms:
-        print(f"Applying Augmentation on ({n_transform_imgs}) images from ({BATCH_SIZE}) images")
+        n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
+        print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
         # Use the imported aug_pipe
         transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
     else:
@@ -308,6 +309,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         aug_pipe = A.Compose([
             A.NoOp()  # No operation, pass-through transform
         ])
+        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
 
     # Update new_path to include the 'models' directory and description
     new_path = Path(model_Path) / description
@@ -328,7 +330,6 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                             ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
                             class_zero=class_zero)
 
-
     # Data Block for Reference Storage
     db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
                            transforms=transforms)
@@ -340,9 +341,11 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         elif CLASS_WEIGHTS == "weighted":
             CLASS_WEIGHTS = get_class_weights(data_path, db)
 
+    # print("block")
+    # print(db)
     dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
     dls.vocab = CODES
-                   
+
     inputs, targets = dls.one_batch()
     if visualize_data_example:
         inputs_np = inputs.cpu().detach().numpy()

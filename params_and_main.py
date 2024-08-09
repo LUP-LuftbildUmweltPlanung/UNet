@@ -101,7 +101,7 @@ ARCHITECTURE = xresnet34  # xresnet34
 
 # Create an instance of the transforms
 transforms = True
-n_transform_imgs = 4  # Number of augmented images (default is 2).
+n_transform_imgs = 1 # Percentage of augmented images [0-1]. Decimals always be rounded up.
 aug_pipe = A.Compose([
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.

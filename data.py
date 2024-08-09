@@ -112,20 +112,12 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
 
         return train_files + valid_files
 
-    if transforms is not None:
-        db = DataBlock(
+    db = DataBlock(
             blocks=blocks,
             get_items=get_undersampled_tiles,  # Collect undersampled tiles
             get_y=get_y,  # Get dependent variable: mask
             splitter=FuncSplitter(valid_split),  # Split into training and validation set
-            batch_tfms=transforms  # Transforms on GPU: augmentation, normalization
-        )
-    else:
-        db = DataBlock(
-            blocks=blocks,
-            get_items=get_undersampled_tiles,  # Collect undersampled tiles
-            get_y=get_y,  # Get dependent variable: mask
-            splitter=FuncSplitter(valid_split),  # Split into training and validation set
+            batch_tfms=transforms  # augmentation, normalization
         )
 
-    return db
+

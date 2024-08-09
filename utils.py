@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 import json
+import math
 import re
 import tifffile
 
@@ -18,9 +19,7 @@ from fastai.callback.schedule import minimum, steep, valley, slide
 from fastcore.foundation import L
 from fastai.vision.all import ItemTransform, TensorImage, TensorMask
 
-
 from osgeo import gdal, gdal_array
-
 
 
 def get_image_tiles(path: Path, ) -> L:
@@ -54,8 +53,6 @@ def get_y(fn: Path):
     fn = get_y_fn(fn)
     msk2 = load_gdal(fn)[:, :, 0]
     return PILMask.create(msk2)
-
-
 
 
 def annot_min(y, ax=None):
@@ -145,7 +142,6 @@ def visualize_data(inputs, model_path):
         plt.savefig(Path(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png"))
 
 
-
 def Smoothl1(*args, axis=1, floatify=True, **kwargs):
     """Same as 'nn.L1Loss', but flattens input and target."""
     return BaseLoss(nn.SmoothL1Loss, *args, axis=axis, floatify=floatify, is_2d=False, beta=0.5, **kwargs)
@@ -153,8 +149,8 @@ def Smoothl1(*args, axis=1, floatify=True, **kwargs):
 
 def find_lr(learn, finder):
     """Finds the suggested maximum learning rate using a fastai learning rate finder"""
-    lrs = learn.lr_find(suggest_funcs=(minimum, steep, valley, slide),show_plot=True)
-    #plt.show()
+    lrs = learn.lr_find(suggest_funcs=(minimum, steep, valley, slide), show_plot=True)
+    # plt.show()
     if finder == 'valley':
         lr_max = lrs.valley
     elif finder == 'slide':
@@ -169,7 +165,6 @@ def find_lr(learn, finder):
                       " Using valley.")
 
     return lr_max
-
 
 
 def check_and_fill(args, target_len):
@@ -198,18 +193,16 @@ def check_and_fill(args, target_len):
     return args
 
 
-
-       
 class SegmentationAlbumentationsTransform(ItemTransform):
     """Applies Albumentations augmentations to images and optionally masks.
 
     Args:
-        aug (callable): Albumentations augmentation function.    
+        aug (callable): Albumentations augmentation function.
     Note:
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
-    split_idx = 0  # Train
+    split_idx = 0  # Apply Augmentations for 0 = Train, 1 = Validation, None = Both
 
     def __init__(self, dtype, aug, n_transform_imgs=2, **kwargs):
         """
@@ -226,7 +219,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
     def encodes(self, x):
         """
-        Applies Albumentations augmentations to input images and masks.
+        Applies albumentations augmentations to input images and masks.
 
         Args:
             x (tuple or Tensor): Input data containing images and masks.
@@ -234,55 +227,72 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         Returns:
             Tensor or tuple of Tensors: Transformed images and masks (if provided).
         """
-        # Extract images and masks
-        batch_img, batch_mask = x  # Expecting tuple (img, mask)
-        
-        # Check if n_transform_imgs is greater than or equal to the batch size
-        if len(batch_img) < self.n_transform_imgs:
-            raise ValueError(f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be less than the batch size ({len(batch_img)}).")
+        try:
+            batch_img, batch_mask = x  # Expecting tuple (img, mask)
+        except ValueError:
+            batch_img = x  # Only one value is provided, assuming it's just the image
+            batch_mask = None  # No mask provided
+            # Check if n_transform_imgs is greater than or equal to the batch size
+        if not (0 <= self.n_transform_imgs <= 1):
+            raise ValueError(
+                f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be between 1 and 0.")
+
+        Batch = len(batch_img)
+        n_transform = math.ceil(Batch * self.n_transform_imgs)
 
         transformed_images = []
         transformed_masks = []
-        
-        # Process each image and mask in the last proportion of the batch
-        for img, mask in zip(batch_img[int(self.n_transform_imgs - len(batch_img)):], batch_mask[int(self.n_transform_imgs - len(batch_img)):]):
-        
-            # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
-            img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
-            
-            # Ensure tensor is on CPU before converting to numpy array
-            img_np = img.cpu().numpy()
-            mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
+
+        if batch_mask is None:
+            batch_img = batch_img[0]
+
             if self.dtype == 'int16':
-                img_np /= 65535
-            elif self.dtype == 'int8':
-                img_np /= 255
-            else:
-                ValueError("The data_type should be int8 or int16, your data not valid")
-        
-            # Apply augmentation
-            aug = self.aug(image=img_np, mask=mask_np)
-        
-            # After augmentation, transpose image back to [C, H, W]
-            img_aug = np.transpose(aug['image'], (2, 0, 1))
-            mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
-        
-            # Convert augmented images and masks back to tensors and append to the transformed lists
-            transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
-            transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
-        
-        
+                batch_img /= 255
+
+            return [batch_img]
+
+        # Process each image and mask in the last proportion of the batch
+        else:
+            for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
+                                 batch_mask[int(n_transform- len(batch_img)):]):
+
+                # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
+                img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
+
+                # Ensure tensor is on CPU before converting to numpy array
+                img_np = img.cpu().numpy()
+                mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
+                if self.dtype == 'int16':
+                    img_np /= 65535
+                elif self.dtype == 'int8':
+                    img_np /= 255
+                else:
+                    ValueError("The data_type should be int8 or int16, your data not valid")
+
+                # Apply augmentation
+                aug = self.aug(image=img_np, mask=mask_np)
+
+                # After augmentation, return to Uint8 Image for the Dataloader
+                aug['image'] *= 255
+
+                # After augmentation, transpose image back to [C, H, W]
+                img_aug = np.transpose(aug['image'], (2, 0, 1))
+                mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
+
+                # Convert augmented images and masks back to tensors and append to the transformed lists
+                transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
+                transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
+
         # Leave the first proportion of the batch unchanged
-        for img, mask in zip(batch_img[:int(self.n_transform_imgs - len(batch_img))], batch_mask[:int(self.n_transform_imgs - len(batch_img))]):
+
+        for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
+                             batch_mask[:int(n_transform - len(batch_img))]):
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
-
-        
         # Stack all processed items in the batch back into tensors
         return torch.stack(transformed_images), torch.stack(transformed_masks)
-    
-    
+
 
 
 def save_params(params, model_Path, description):
@@ -293,6 +303,7 @@ def save_params(params, model_Path, description):
     - params (dict): Dictionary of parameters to save.
     - description (str): Description to be used as the folder and file name.
     """
+
     def default_converter(o):
         if isinstance(o, (int, float, str, bool, type(None))):
             return o
@@ -304,24 +315,24 @@ def save_params(params, model_Path, description):
     with open(json_path, 'w') as json_file:
         json.dump(params, json_file, indent=4, default=default_converter)
     print(f'Parameters saved to {json_path}')
-    
+
 
 def get_patch_size(base_dir):
     base_dir = Path(base_dir)
     base_dir = base_dir / "trai" / "img_tiles"
-    
+
     # List all files in the directory
     files = [f for f in os.listdir(base_dir) if f.endswith('.tif')]
-    
+
     if not files:
         raise ValueError("No .tif files found in the directory")
-    
+
     # Open the first file to get the size, resolution, and data type
     file_path = base_dir / files[0]
     with tifffile.TiffFile(file_path) as tif:
         # Get image size
         width, height = tif.pages[0].shape[:2]
-        
+
         # Attempt to get resolution from ModelPixelScaleTag if available
         resolution = None
         try:
@@ -329,7 +340,7 @@ def get_patch_size(base_dir):
             resolution = (model_pixel_scale_tag[0], model_pixel_scale_tag[1])
         except KeyError:
             pass
-        
+
         # If ModelPixelScaleTag is not found, use the default or any other available tags
         if resolution is None:
             for tag_name in ['XResolution', 'YResolution', 'Pixel Size']:
@@ -342,18 +353,17 @@ def get_patch_size(base_dir):
                     break
                 except KeyError:
                     continue
-        
+
         # Get data type
         data_type = tif.pages[0].dtype
-        
+
         # Get number of bands
         number_of_bands = tif.pages[0].samplesperpixel
-    
+
     return width, resolution, data_type, number_of_bands
 
 
-
-def process_and_save_params(data_path, aug_pipe, model_path, description,transforms=False, **kwargs):
+def process_and_save_params(data_path, aug_pipe, model_path, description, transforms=False, **kwargs):
     """
     Process and save parameters to a JSON file.
 
@@ -380,22 +390,20 @@ def process_and_save_params(data_path, aug_pipe, model_path, description,transfo
     params['aug_params_'] = aug_params_
     # Remove specific keys from params
     for key in ['data_path', 'aug_pipe', 'model_path', 'description']:
-          params.pop(key, None)
+        params.pop(key, None)
 
-    
     # Conditionally delete specific keys
     if not transforms:
         params.pop('aug_params_', None)
         # Remove specific keys from kwargs if necessary
         kwargs.pop('n_transform_imgs', None)
-    
+
     # Ensure 'transforms' is set to True if it is supposed to be
     if transforms:
         params['transforms'] = True
-        
-    
+
     # Keys to delete
-    keys_to_delete = ['BATCH_SIZE', 'EPOCHS', 'regression', 'LEARNING_RATE', 'LR_FINDER', 'ENCODER_FACTOR', 'loss_func', 
+    keys_to_delete = ['BATCH_SIZE', 'EPOCHS', 'regression', 'LEARNING_RATE', 'LR_FINDER', 'ENCODER_FACTOR', 'loss_func',
                       'self_attention', 'monitor', 'ARCHITECTURE', 'CODES']
 
     # Delete the keys
@@ -413,7 +421,8 @@ def process_and_save_params(data_path, aug_pipe, model_path, description,transfo
 
     formatted_json_string = re.sub(
         r'("CODES":\s*\[)([^\]]*)(\])|("VALID_SCENES":\s*\[)([^\]]*)(\])|("resolution":\s*\[)([^\]]*)(\])',
-        lambda m: f'{m.group(1) or m.group(4) or m.group(7)}{" ".join((m.group(2) or m.group(5) or m.group(8)).split())}{m.group(3) or m.group(6) or m.group(9)}',
+        lambda
+            m: f'{m.group(1) or m.group(4) or m.group(7)}{" ".join((m.group(2) or m.group(5) or m.group(8)).split())}{m.group(3) or m.group(6) or m.group(9)}',
         json_string
     )
     # Path to save the JSON file
@@ -422,6 +431,5 @@ def process_and_save_params(data_path, aug_pipe, model_path, description,transfo
     # Save the formatted JSON string to a file
     with open(json_path, 'w') as json_file:
         json_file.write(formatted_json_string)
-    
-    print(f'Parameters saved to {json_path}')
 
+    print(f'Parameters saved to {json_path}')
