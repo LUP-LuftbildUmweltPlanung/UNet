@@ -202,9 +202,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
-    split_idx = 0  # Apply Augmentations for 0 = Train, 1 = Validation, None = Both
-
-    def __init__(self, dtype, aug, n_transform_imgs=2, **kwargs):
+    def __init__(self, dtype, aug, n_transform_imgs=2, split_idx= 0, **kwargs):
         """
         Initializes the SegmentationAlbumentationsTransform.
 
@@ -216,6 +214,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         self.aug = aug
         self.n_transform_imgs = n_transform_imgs
         self.dtype = dtype
+        self.split_idx = split_idx
 
     def encodes(self, x):
         """
@@ -255,7 +254,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         else:
             for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
                                  batch_mask[:int(n_transform - len(batch_img))]):
-
+                print("apply transform")
                 # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
                 img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
 
@@ -295,8 +294,6 @@ class SegmentationAlbumentationsTransform(ItemTransform):
             transformed_masks.append(mask)
         # Stack all processed items in the batch back into tensors
         return torch.stack(transformed_images), torch.stack(transformed_masks)
-
-
 
 def save_params(params, model_Path, description):
     """
