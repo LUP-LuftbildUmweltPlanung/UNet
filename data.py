@@ -94,13 +94,6 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
     """
     ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True), batch_tfms=None)
 
-    # if dtype == 'int16':
-    #     ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True),
-    #                           batch_tfms=Int16ToFloatTensor)
-    # else:
-    #     ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True),
-    #                           batch_tfms=IntToFloatTensor)
-
     if regression:
         blocks = (ImgBlock, RegressionBlock())
     else:
@@ -123,7 +116,7 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
 
         return train_files + valid_files
 
-    #    if transforms is not None:
+
     db = DataBlock(
         blocks=blocks,
         get_items=get_undersampled_tiles,  # Collect undersampled tiles
@@ -131,13 +124,5 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
         splitter=FuncSplitter(valid_split),  # Split into training and validation set
         batch_tfms=transforms  # Transforms on GPU: augmentation, normalization
     )
-    # else:
-
-    #     db = DataBlock(
-    #         blocks=blocks,
-    #         get_items=get_undersampled_tiles,  # Collect undersampled tiles
-    #         get_y=get_y,  # Get dependent variable: mask
-    #         splitter=FuncSplitter(valid_split),  # Split into training and validation set
-    #     )
 
     return db
