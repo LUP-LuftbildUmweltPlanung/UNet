@@ -254,7 +254,6 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         else:
             for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
                                  batch_mask[:int(n_transform - len(batch_img))]):
-                print("apply transform")
                 # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
                 img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
 
