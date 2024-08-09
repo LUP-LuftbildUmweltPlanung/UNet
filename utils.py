@@ -253,8 +253,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
         # Process each image and mask in the last proportion of the batch
         else:
-            for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
-                                 batch_mask[int(n_transform- len(batch_img)):]):
+            for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
+                                 batch_mask[:int(n_transform - len(batch_img))]):
 
                 # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
                 img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
@@ -285,8 +285,11 @@ class SegmentationAlbumentationsTransform(ItemTransform):
 
         # Leave the first proportion of the batch unchanged
 
-        for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
-                             batch_mask[:int(n_transform - len(batch_img))]):
+        for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
+                             batch_mask[int(n_transform- len(batch_img)):]):
+            if self.dtype == 'int16':
+                img /= 255
+            
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
