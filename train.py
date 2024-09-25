@@ -198,7 +198,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     if regression and monitor is None:
         monitor = 'r2_score'
     elif monitor is None:
-        monitor = 'dice_multi'
+        monitor = 'valid_loss'
 
     if monitor in ['train_loss', 'valid_loss']:
         comp = np.less
