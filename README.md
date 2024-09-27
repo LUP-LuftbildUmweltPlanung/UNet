@@ -27,7 +27,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 * `cd ../UNet/environment`
 * `pip install -r requirements.txt`
 
-* #### For Linux
+#### For Linux
 
 * clone the Stable UNet repository
 * `conda create --name UNet python==3.9.6`
