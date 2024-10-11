@@ -1,0 +1,2 @@
+environment/*.whl filter=lfs diff=lfs merge=lfs -text
+environment/*.whl !text !filter !merge !diff
