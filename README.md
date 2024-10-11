@@ -18,12 +18,18 @@ The repository contains all code necessary to preprocess large tif-images, run t
 * developed on Windows 10
 
 ### Installation
-
+#### For Windows
 * clone the Stable UNet repository
 * `conda create --name UNet python==3.9.6`
 * `conda activate UNet`
 * `cd ../UNet/environment`
 * `pip install -r requirements.txt`
+#### For Linux
+* clone the Stable UNet repository
+* `conda create --name UNet python==3.9.6`
+* `conda activate UNet`
+* `cd ../UNet/environment`
+* `pip install -r requirements_Linux.txt`
 
 ### Executing program
 
