@@ -87,7 +87,7 @@ VALID_SCENES = ['vali']
 loss_func = CrossEntropyLossFlat(axis=1)  # FocalLossFlat(gamma=2, axis=1)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
-monitor = 'dice_multi'  # 'dice_multi'  'r2_score'
+monitor = 'valid_loss'  # 'dice_multi'  'r2_score'
 # Regression: 'train_loss', 'valid_loss', 'r2_score' !if existing model is used, monitor of original model is applied!
 # Classification: 'dice_multi', 'train_loss'    !if existing model is used, monitor of original model is applied!
 all_classes = False  # If all class predictions should be stored
