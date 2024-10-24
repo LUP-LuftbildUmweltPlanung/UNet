@@ -198,7 +198,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     if regression and monitor is None:
         monitor = 'r2_score'
     elif monitor is None:
-        monitor = 'dice_multi'
+        monitor = 'valid_loss'
 
     if monitor in ['train_loss', 'valid_loss']:
         comp = np.less
@@ -231,7 +231,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     # save model summary
     if export_model_summary:
         default_stdout = sys.stdout
-        summary_path = str(path).rsplit('.', 1)[0] + "_model_summary.txt"
+        summary_path = Path(path.with_stem(path.stem + "_model_summary").with_suffix(".txt"))
         sys.stdout = open(summary_path, 'w')
         print('Class_weights:', class_weights)
         print(learn.summary())
@@ -252,7 +252,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     # plot loss
     learn.recorder.plot_loss()
     # move history
-    hist_path = Path(str(path).rsplit('.', 1)[0] + "_history.csv")
+    hist_path = Path(path.with_stem(path.stem + "_history").with_suffix(".csv"))
     # os.rename(learn.path / learn.csv_logger.fname, hist_path)
     shutil.move(learn.path / learn.csv_logger.fname, hist_path)
     learn.remove_cb(CSVLogger)
@@ -287,13 +287,13 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,
                enable_regression, CLASS_WEIGHTS,
                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
-               VALID_SCENES,
-               CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
+               VALID_SCENES,CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                class_zero):
     # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
     data_path = Path(data_path)
     # Get datatype of training data
     print(data_path)
+
     dtype = get_datatype(data_path)
 
     if existing_model is not None:
@@ -340,8 +340,6 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         elif CLASS_WEIGHTS == "weighted":
             CLASS_WEIGHTS = get_class_weights(data_path, db)
 
-    # print("block")
-    # print(db)
     dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
     dls.vocab = CODES
 

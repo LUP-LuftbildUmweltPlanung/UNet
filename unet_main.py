@@ -23,11 +23,7 @@ from predict import save_predictions
 from train import train_unet
 from utils import get_datatype, get_class_weights, visualize_data, find_lr  # Smoothl1
 
-from params import *
-
-import pathlib
-temp = pathlib.PosixPath
-pathlib.PosixPath = pathlib.WindowsPath
+from params_and_main import *
 
 
 if enable_extra_parameters:

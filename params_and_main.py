@@ -1,6 +1,8 @@
 from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
+from utils import backslash_to_forwardslash
+
 
 import os 
 import time
@@ -16,8 +18,6 @@ from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 
 
-
-
 # PARAMETERS
 Create_tiles = True
 Train = False
@@ -28,6 +28,7 @@ Predict = False
 ######################################################
 
 # if using without mask, set mask_path = None
+
 image_path = r"PATH"
 mask_path = r"PATH"
 base_dir = r"PATH"
@@ -35,7 +36,9 @@ base_dir = r"PATH"
 #for prediction patch_overlap = 0.2 to prevent edge artifacts and split = [1] to predict full image
 patch_size = 400
 patch_overlap = 0
+
 split = [0.8, 0.2]
+
 
 
 
@@ -117,6 +120,14 @@ aug_pipe = A.Compose([
 
 # EXTRA END
 
+# Change paths to work on Windows and Linux
+image_path = backslash_to_forwardslash(image_path)
+mask_path = backslash_to_forwardslash(mask_path)
+base_dir = backslash_to_forwardslash(base_dir)
+model_path = backslash_to_forwardslash(model_path)
+predict_path = backslash_to_forwardslash(predict_path)
+predict_model = backslash_to_forwardslash(predict_model)
+
 
 def main():
     """Main function."""
@@ -124,8 +135,7 @@ def main():
     global large_file, specific_class, all_classes, transforms, VALID_SCENES, self_attention, monitor, loss_func, LR_FINDER, ENCODER_FACTOR, ARCHITECTURE, enable_regression, max_empty
 
     start_time = time.time()
-    temp = pathlib.PosixPath
-    pathlib.PosixPath = pathlib.WindowsPath
+
 
     if enable_extra_parameters:
         warnings.warn("Extra parameters are enabled. Code may behave in unexpected ways. "
@@ -168,8 +178,7 @@ def main():
         train_func(data_path, existing_model, model_path, description, BATCH_SIZE, visualize_data_example,
                    enable_regression, CLASS_WEIGHTS,
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
-                   VALID_SCENES,
-                   CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
+                   VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                    class_zero)
 
     if Predict:
@@ -182,8 +191,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-            

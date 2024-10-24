@@ -31,7 +31,6 @@ def open_npy(fn, chnls=None, cls=torch.Tensor):
 class MSTensorImage(TensorImage):
     """Class handling the image files. The create function was added to allow loading of images.\n
     Taken from: https://github.com/cordmaur/Fastai2-Medium/blob/master/01_Create_Datablock.ipynb"""
-
     def __init__(self, x, chnls_first=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.chnls_first = chnls_first
@@ -92,6 +91,7 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
     ----------
         Only necessary if code is based on anything
     """
+
     ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True), batch_tfms=None)
 
     if regression:
@@ -116,7 +116,6 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
 
         return train_files + valid_files
 
-
     db = DataBlock(
         blocks=blocks,
         get_items=get_undersampled_tiles,  # Collect undersampled tiles
@@ -124,5 +123,4 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
         splitter=FuncSplitter(valid_split),  # Split into training and validation set
         batch_tfms=transforms  # Transforms on GPU: augmentation, normalization
     )
-
     return db

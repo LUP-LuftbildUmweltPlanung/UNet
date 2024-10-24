@@ -71,7 +71,7 @@ def annot_min(y, ax=None):
 
 def get_datatype(path):
     """Gets the largest datatype of all images within a directory"""
-    file = glob.glob(str(path / r'trai\img_tiles\*tif'))[0]
+    file = glob.glob(str(path /'trai/img_tiles/*.tif'))[0]
     img_ds = gdal.Open(file, gdal.GA_ReadOnly)
     img = np.zeros((img_ds.RasterYSize, img_ds.RasterXSize, img_ds.RasterCount),
                    gdal_array.GDALTypeCodeToNumericTypeCode(img_ds.GetRasterBand(1).DataType))
@@ -105,7 +105,7 @@ def is_outlier(points, thresh=3.5):
 
 def get_class_weights(path, tiles):
     """Creates class weights inversely proportional to the amount of class-counts in the dataset."""
-    msk_files = path / r"trai/mask_tiles"
+    msk_files = path / "trai/mask_tiles"
     dls = tiles.dataloaders(path, bs=np.min([len(list(msk_files.glob('*.tif'))), 1200]), num_workers=0)
     count_tensor = dls.one_batch()[1].unique(return_counts=True)[1]
     total_samples = sum(count_tensor)  # Total number of samples in the dataset
@@ -203,6 +203,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         If only images are provided, it assumes no masks are present.
     """
     def __init__(self, dtype, aug, n_transform_imgs=2, split_idx= 0, **kwargs):
+
         """
         Initializes the SegmentationAlbumentationsTransform.
 
@@ -287,7 +288,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                              batch_mask[int(n_transform- len(batch_img)):]):
             if self.dtype == 'int16':
                 img /= 255
-            
+
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
@@ -432,3 +433,22 @@ def process_and_save_params(data_path, aug_pipe, model_path, description, transf
         json_file.write(formatted_json_string)
 
     print(f'Parameters saved to {json_path}')
+
+
+def backslash_to_forwardslash(input_path):
+    """
+    input: path with datatype str
+    output: path as Path-object with forward slashes instead of backslashes
+    """
+    if input_path == None:
+        return None
+
+    if '\\' in input_path:
+        # Windows-Path: replace backslashes with forward slashes
+        corrected_path = input_path.replace('\\', '/')
+    else:
+        # Linux or Mac path
+        corrected_path = input_path
+
+    return Path(corrected_path)
+
