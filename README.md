@@ -19,11 +19,21 @@ The repository contains all code necessary to preprocess large tif-images, run t
 
 ### Installation
 
+#### For Windows
 * clone the Stable UNet repository
 * `conda create --name UNet python==3.9.6`
 * `conda activate UNet`
 * `cd ../UNet/environment`
 * `pip install -r requirements.txt`
+
+#### For Linux
+* clone the Stable UNet repository
+* `conda create --name UNet python==3.9.6`
+* `conda activate UNet`
+* `pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html`
+* `cd ../UNet/environment`
+* `pip install -r requirements_Linux.txt`
+
 
 ### Executing program
 

@@ -18,9 +18,9 @@ from utils import get_y, get_image_tiles
 def open_npy(fn, chnls=None, cls=torch.Tensor):
     """Opens an image file using rasterio. Returns a torch tensor"""
     numpy_image = rasterio.open(fn).read()
-    #try:
-    #im = torch.from_numpy(numpy_image).type(torch.float32)
-    #except:
+    # try:
+    # im = torch.from_numpy(numpy_image).type(torch.float32)
+    # except:
     im = torch.from_numpy(numpy_image.astype(np.int32)).type(torch.float32)
 
     if chnls is not None:
@@ -31,7 +31,7 @@ def open_npy(fn, chnls=None, cls=torch.Tensor):
 class MSTensorImage(TensorImage):
     """Class handling the image files. The create function was added to allow loading of images.\n
     Taken from: https://github.com/cordmaur/Fastai2-Medium/blob/master/01_Create_Datablock.ipynb"""
-    def __init__(self,x, chnls_first=False, *args, **kwargs):
+    def __init__(self, x, chnls_first=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.chnls_first = chnls_first
 
@@ -61,6 +61,7 @@ def get_lbl_fn(img_fn: Path):
 
 class Int16ToFloatTensor(DisplayedTransform):
     """Transform image to float tensor, optionally dividing by 255 (e.g. for images)."""
+
     def __init__(self, div=255., div_mask=1): store_attr()
 
     def encodes(self, o: TensorImage): return o.float().div_(self.div)
@@ -90,7 +91,9 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
     ----------
         Only necessary if code is based on anything
     """
-    ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True))
+
+    ImgBlock = TransformBlock(type_tfms=partial(MSTensorImage.create, chnls_first=True), batch_tfms=None)
+
     if regression:
         blocks = (ImgBlock, RegressionBlock())
     else:
@@ -114,12 +117,10 @@ def create_data_block(valid_scenes, codes, dtype, regression=False, transforms=N
         return train_files + valid_files
 
     db = DataBlock(
-            blocks=blocks,
-            get_items=get_undersampled_tiles,  # Collect undersampled tiles
-            get_y=get_y,  # Get dependent variable: mask
-            splitter=FuncSplitter(valid_split),  # Split into training and validation set
-            batch_tfms=transforms  # augmentation, normalization
-        )
+        blocks=blocks,
+        get_items=get_undersampled_tiles,  # Collect undersampled tiles
+        get_y=get_y,  # Get dependent variable: mask
+        splitter=FuncSplitter(valid_split),  # Split into training and validation set
+        batch_tfms=transforms  # Transforms on GPU: augmentation, normalization
+    )
     return db
-
-

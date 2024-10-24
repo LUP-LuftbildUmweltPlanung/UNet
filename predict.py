@@ -159,6 +159,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
     """
 
     learn = load_learner(Path(predict_model))
+
     path = Path(predict_path)
 
     # Define the path as the current directory
@@ -347,6 +348,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         output_file_name_parts = [AOI, year, model_name, "prediction"]
         output_file_name = "_".join(filter(None, output_file_name_parts)) + ".tif"
         output_file = output_folder / output_file_name
+        print(output_file)
 
         store_tif(output_file, merged_raster, dtype,
                   [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],

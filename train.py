@@ -231,7 +231,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     # save model summary
     if export_model_summary:
         default_stdout = sys.stdout
-        summary_path = Path(str(path).rsplit('.', 1)[0] + "_model_summary.txt")
+        summary_path = Path(path.with_stem(path.stem + "_model_summary").with_suffix(".txt"))
         sys.stdout = open(summary_path, 'w')
         print('Class_weights:', class_weights)
         print(learn.summary())
@@ -282,20 +282,18 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 
     return learn
 
-
 #### define train function to be able to use for train_multi and new params approach
 
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,
                enable_regression, CLASS_WEIGHTS,
                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
-               VALID_SCENES,
-               CODES, transforms, export_model_summary, aug_pipe, n_transform_imgs, save_confusion_matrix, info,
+               VALID_SCENES,CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                class_zero):
-
-
     # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
     data_path = Path(data_path)
     # Get datatype of training data
+    print(data_path)
+
     dtype = get_datatype(data_path)
 
     if existing_model is not None:
@@ -304,7 +302,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
         print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
         # Use the imported aug_pipe
-        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
+        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
     else:
         # Define a default augmentation pipeline
         aug_pipe = A.Compose([

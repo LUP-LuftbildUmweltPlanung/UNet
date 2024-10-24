@@ -60,6 +60,7 @@ data_path = [
 existing_model = [
                 None,
                   ]#Path("PATH") or None
+
 BATCH_SIZE = [4]# 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
 EPOCHS = [2]
 LEARNING_RATE = [0.00001]
@@ -206,6 +207,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
