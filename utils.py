@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 import math
 import re
+import mlflow
 import tifffile
 
 from torch import nn
@@ -202,7 +203,8 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
-    def __init__(self, dtype, aug, n_transform_imgs=2, split_idx= 0, **kwargs):
+
+    def __init__(self, dtype, aug, n_transform_imgs=2, split_idx=0, **kwargs):
         """
         Initializes the SegmentationAlbumentationsTransform.
 
@@ -284,15 +286,16 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         # Leave the first proportion of the batch unchanged
 
         for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
-                             batch_mask[int(n_transform- len(batch_img)):]):
+                             batch_mask[int(n_transform - len(batch_img)):]):
             if self.dtype == 'int16':
                 img /= 255
-            
+
             # Append the unchanged images and masks to the transformed lists
             transformed_images.append(img)
             transformed_masks.append(mask)
         # Stack all processed items in the batch back into tensors
         return torch.stack(transformed_images), torch.stack(transformed_masks)
+
 
 def save_params(params, model_Path, description):
     """
@@ -431,4 +434,48 @@ def process_and_save_params(data_path, aug_pipe, model_path, description, transf
     with open(json_path, 'w') as json_file:
         json_file.write(formatted_json_string)
 
+    # ✅ If MLflow is active, save JSON as an artifact
+    if mlflow.active_run():
+        mlflow.log_artifact(json_path)
+        print(f"✅ Parameters JSON logged to MLflow: {json_path}")
+
     print(f'Parameters saved to {json_path}')
+
+
+def get_image_metadata(path):
+    """
+    Extracts patch size, resolution, number of bands, and data type
+    from a sample image in the dataset.
+
+    Parameters:
+    -----------
+    - path (Path): Base directory containing the dataset.
+
+    Returns:
+    --------
+    - dict: Metadata dictionary with patch size, resolution, number of bands, and data type.
+    """
+
+    # ✅ Find a sample image file in 'train' folder (assumed structure)
+    image_files = glob.glob(str(path / r'trai\img_tiles\*.tif'))
+    if not image_files:
+        raise FileNotFoundError(f"No TIFF files found in {path / 'trai/img_tiles/'}")
+
+    sample_image = image_files[0]
+
+    # ✅ Open raster using GDAL
+    img_ds = gdal.Open(sample_image, gdal.GA_ReadOnly)
+
+    # ✅ Extract patch size (assuming square images)
+    patch_size = img_ds.RasterXSize  # Assuming width = height
+
+    # ✅ Extract spatial resolution
+    geotransform = img_ds.GetGeoTransform()
+    resolution = [abs(geotransform[1]), abs(geotransform[5])]  # Pixel size in X and Y
+
+    # ✅ Get the number of bands in the dataset
+    number_of_bands = img_ds.RasterCount
+
+    # ✅ Return structured metadata dictionary
+    return patch_size, resolution, number_of_bands
+

@@ -1,22 +1,23 @@
 import os
 import warnings
 import numpy as np
+import mlflow
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
 import shutil
+import mlflow.pytorch
+from mlflow.tracking import MlflowClient
 import sys
-# from sklearn.metrics import confusion_matrix, classification_report
 from torch import nn, Tensor
 import json
 from pathlib import Path
 from typing import Optional
-# from IPython.display import display
 import albumentations as A
 
 from data import create_data_block
 from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, \
-    SegmentationAlbumentationsTransform, process_and_save_params
+    SegmentationAlbumentationsTransform, process_and_save_params, get_image_metadata
 
 import fastai.vision.models as models
 from fastai.vision.core import imagenet_stats
@@ -36,6 +37,34 @@ from fastai.torch_core import params, to_device, apply_init
 
 from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
+def log_metrics_mlflow(hist_path, monitor):
+    """
+    Logs training metrics (train_loss, valid_loss, dice_multi) from history CSV to MLflow.
+
+    Parameters:
+    - hist_path (Path): Path to the training history CSV.
+    - monitor (str): The primary metric to monitor (e.g., "valid_loss", "dice_multi").
+    """
+    if not hist_path.exists():
+        print(f"⚠️ Warning: Metrics file not found at {hist_path}")
+        return
+
+    # ✅ Read the training history
+    hist = pd.read_csv(hist_path)
+
+    # ✅ Log metrics for each epoch
+    for epoch, row in hist.iterrows():
+        mlflow.log_metric("train_loss", row["train_loss"], step=epoch)
+        mlflow.log_metric("valid_loss", row["valid_loss"], step=epoch)
+        mlflow.log_metric("dice_multi", row["dice_multi"], step=epoch)
+
+        # ✅ Log primary monitoring metric separately (for MLflow visualization)
+        if monitor in row:
+            mlflow.log_metric(monitor, row[monitor], step=epoch)
+
+    print(f"✅ Metrics logged to MLflow from {hist_path}")
+
+
 
 
 def load_split_raster_params(json_path):
@@ -238,6 +267,9 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         print(learn.model)
         sys.stdout.close()
         sys.stdout = default_stdout
+        # add to mlfow:
+        if os.path.exists(summary_path):
+            mlflow.log_artifact(summary_path)
 
     if lr_finder is not None:
         lr = find_lr(learn, lr_finder)
@@ -278,96 +310,180 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     plt.ylabel('Loss')
     plt.title('Model Training Overview')
     plt.legend()
-    plt.savefig(str(hist_path).rsplit('.', 1)[0] + '.png', dpi=200)
+    loss_plot_path = str(hist_path).rsplit('.', 1)[0] + '_loss_plot.png'
+    plt.savefig(loss_plot_path, dpi=200)
+    plt.close()  # ✅ Free memory
+
+    # Ensure MLflow is active before logging
+    if mlflow.active_run():
+        mlflow.log_artifact(loss_plot_path)
+        print(f"✅ Loss plot logged to MLflow: {loss_plot_path}")
+    else:
+        print("❌ Error: No active MLflow run found! Loss plot NOT logged.")
 
     return learn
 
 #### define train function to be able to use for train_multi and new params approach
 
-def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,
-               enable_regression, CLASS_WEIGHTS,
-               ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
-               VALID_SCENES,
-               CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-               class_zero):
-    # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
-    data_path = Path(data_path)
-    # Get datatype of training data
-    print(data_path)
-    dtype = get_datatype(data_path)
 
-    if existing_model is not None:
-        existing_model = Path(existing_model)
-    if transforms:
-        n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
-        print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
-        # Use the imported aug_pipe
-        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
-    else:
-        # Define a default augmentation pipeline
-        aug_pipe = A.Compose([
-            A.NoOp()  # No operation, pass-through transform
-        ])
-        transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
+def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
+                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
+               VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
+               class_zero, register_model):
+    try:
+        # ✅ Check if an MLflow run is already active; if not, start one
+        if mlflow.active_run():
+            print(f"⚠️ Using existing MLflow run: {mlflow.active_run().info.run_id}")
+        else:
+            mlflow.start_run(run_name=description)
+            print(f"🚀 Started MLflow run: {mlflow.active_run().info.run_id}")
 
-    # Update new_path to include the 'models' directory and description
-    new_path = Path(model_Path) / description
+            # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
+            data_path = Path(data_path)
+            # Get datatype of training data
+            print(data_path)
+            dtype = get_datatype(data_path)
+            patch_size, resolution, number_of_bands = get_image_metadata(data_path)
+            if existing_model is not None:
+                existing_model = Path(existing_model)
+            if transforms:
+                n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
+                print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
+                # Use the imported aug_pipe
+                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
+            else:
+                # Define a default augmentation pipeline
+                aug_pipe = A.Compose([
+                    A.NoOp()  # No operation, pass-through transform
+                ])
+                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
 
-    # Create the directories if they don't exist
-    new_path.mkdir(parents=True, exist_ok=True)
+            # Update new_path to include the 'models' directory and description
+            new_path = Path(model_Path) / description
 
-    # Path to save the model with .pkl extension
-    model_path = new_path / f"{description}.pkl"
+            # Create the directories if they don't exist
+            new_path.mkdir(parents=True, exist_ok=True)
 
-    # Save parameters to a JSON file
-    process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE,
-                            EPOCHS=EPOCHS, enable_regression=enable_regression,
-                            LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR,
-                            CLASS_WEIGHTS=CLASS_WEIGHTS,
-                            loss_func=loss_func, self_attention=self_attention, monitor=monitor,
-                            VALID_SCENES=VALID_SCENES,
-                            ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
-                            class_zero=class_zero)
+            # Path to save the model with .pkl extension
+            model_path = new_path / f"{description}.pkl"
 
-    # Data Block for Reference Storage
-    db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
-                           transforms=transforms)
-    if enable_regression:
-        CLASS_WEIGHTS = [1]
-    elif isinstance(CLASS_WEIGHTS, str):
-        if CLASS_WEIGHTS == "even":
-            CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
-        elif CLASS_WEIGHTS == "weighted":
-            CLASS_WEIGHTS = get_class_weights(data_path, db)
+            # Save parameters to a JSON file
+            process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE,
+                                    EPOCHS=EPOCHS, enable_regression=enable_regression,
+                                    LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR,
+                                    CLASS_WEIGHTS=CLASS_WEIGHTS,
+                                    loss_func=loss_func, self_attention=self_attention, monitor=monitor,
+                                    VALID_SCENES=VALID_SCENES,
+                                    ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
+                                    class_zero=class_zero)
+            # ✅ Structure the parameters dictionary like the JSON file
+            params_dict = {
+                "transforms": bool(transforms),
+                "BATCH_SIZE": BATCH_SIZE,
+                "EPOCHS": EPOCHS,
+                "enable_regression": enable_regression,
+                "LEARNING_RATE": LEARNING_RATE,
+                "LR_FINDER": LR_FINDER,
+                "ENCODER_FACTOR": ENCODER_FACTOR,
+                "CLASS_WEIGHTS": CLASS_WEIGHTS,
+                "loss_func": str(loss_func),
+                "self_attention": self_attention,
+                "monitor": monitor,
+                "VALID_SCENES": VALID_SCENES,
+                "ARCHITECTURE": str(ARCHITECTURE),
+                "CODES": CODES,
+                "info": info,
+                "class_zero": class_zero,
+                "patch_size": str(patch_size),
+                "resolution": str(resolution),
+                "data_type": dtype,
+                "number_of_bands": str(number_of_bands),
+                "aug_params_": aug_pipe,
+                "Percentage of augmented images": n_transform_imgs
+            }
+            mlflow.log_params(params_dict)
 
-    # print("block")
-    # print(db)
-    dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
-    dls.vocab = CODES
+        # Data Block for Reference Storage
+        db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
+                               transforms=transforms)
+        if enable_regression:
+            CLASS_WEIGHTS = [1]
+        elif isinstance(CLASS_WEIGHTS, str):
+            if CLASS_WEIGHTS == "even":
+                CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
+            elif CLASS_WEIGHTS == "weighted":
+                CLASS_WEIGHTS = get_class_weights(data_path, db)
 
-    inputs, targets = dls.one_batch()
-    if visualize_data_example:
-        inputs_np = inputs.cpu().detach().numpy()
-        targets_np = targets.cpu().detach().numpy()
-        visualize_data(inputs_np, model_path)
-        os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
-        visualize_data(targets_np, model_path)
-        os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
+        dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
+        dls.vocab = CODES
 
-    print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
-    # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
-    print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
-    print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
+        inputs, targets = dls.one_batch()
+        if visualize_data_example:
+            inputs_np = inputs.cpu().detach().numpy()
+            targets_np = targets.cpu().detach().numpy()
+            visualize_data(inputs_np, model_path)
+            os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
+            visualize_data(targets_np, model_path)
+            os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
+            # save in mlflow:
+            image_plot_path = str(model_path).rsplit('.', 1)[0] + "_image_plot.png"
+            if os.path.exists(image_plot_path):
+                mlflow.log_artifact(image_plot_path)
+            # mask to mlflow
+            mask_plot_path = str(model_path).rsplit('.', 1)[0] + "_mask_plot.png"
+            if os.path.exists(mask_plot_path):
+                mlflow.log_artifact(mask_plot_path)
 
-    if enable_regression:
-        print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
-    else:
-        print(f"Class weights: {CLASS_WEIGHTS}")
 
-    learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
-                       path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
-                       regression=enable_regression, loss_func=loss_func, monitor=monitor,
-                       existing_model=existing_model, self_attention=self_attention,
-                       export_model_summary=export_model_summary)
+        print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
+        # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
+        print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
+        print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
 
-    learn.export(model_path)
+        if enable_regression:
+            print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
+        else:
+            print(f"Class weights: {CLASS_WEIGHTS}")
+
+        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
+                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
+                           regression=enable_regression, loss_func=loss_func, monitor=monitor,
+                           existing_model=existing_model, self_attention=self_attention,
+                           export_model_summary=export_model_summary)
+
+        # ✅ Call `log_metrics_mlflow()` to log metrics to MLflow
+        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
+        log_metrics_mlflow(hist_path, monitor)
+        if os.path.exists(hist_path):
+            mlflow.log_artifact(hist_path)
+
+        # ✅ Log Model to MLflow (Conditionally)
+        try:
+            artifact_path = "models"  # ✅ Use relative path instead of `mlflow.get_artifact_uri("models")`
+            if register_model:
+                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path, registered_model_name=description)
+                print(f"✅ Model Registered in MLflow as: {description}")
+            else:
+                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path)
+                print("✅ Model Logged to MLflow (but NOT registered).")
+
+            # ✅ Export the model locally
+            learn.export(model_path)
+            print(f"✅ Training Completed! Model saved at: {model_path}")
+
+        except Exception as e:
+            print(f"❌ Error during training: {e}")
+
+            # ✅ Export the model locally
+            learn.export(model_path)
+            print(f"✅ Training Completed! Model saved at: {model_path}")
+
+        except Exception as e:
+            print(f"❌ Error during training: {e}")
+
+
+    finally:
+        # ✅ Ensure the MLflow run is closed properly
+        if mlflow.active_run():
+            print(f"✅ Ending MLflow run: {mlflow.active_run().info.run_id}")
+            mlflow.end_run()

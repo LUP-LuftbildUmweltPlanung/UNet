@@ -8,6 +8,8 @@ import torch
 import pathlib
 import warnings
 import albumentations as A
+import mlflow.pytorch
+from mlflow.tracking import MlflowClient
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -15,6 +17,36 @@ from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 
+# Set MLflow request timeout via environment variable
+os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
+
+# Define MLflow tracking URI
+MLFLOW_TRACKING_URI = "http://127.0.0.1:8080"  # ✅ Corrected to 127.0.0.1
+mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+print(f"📢 MLflow Tracking URI Set to: {mlflow.get_tracking_uri()}")
+
+# Initialize MLflow Client
+client = MlflowClient()
+
+# Define Experiment Name
+experiment_name = "UNET"
+
+# Define Artifact Location
+artifact_location = r"file:///H:/MLflow/UNet-Stable/mlflow"
+
+# ✅ Check if the experiment exists, if not, create it
+experiment = client.get_experiment_by_name(experiment_name)
+
+if experiment is None:
+    print(f"📢 Experiment '{experiment_name}' not found. Creating a new one...")
+    experiment_id = client.create_experiment(name=experiment_name, artifact_location=artifact_location)
+    experiment = client.get_experiment(experiment_id)
+    print(f"✅ New Experiment Created: {experiment_name} (ID: {experiment_id})")
+else:
+    print(f"✅ Using Existing Experiment: {experiment_name} (ID: {experiment.experiment_id})")
+
+# ✅ Set the experiment for logging runs
+mlflow.set_experiment(experiment_name)
 
 
 
@@ -60,7 +92,7 @@ CODES = ['NO_Data', 'Background', 'Beschirmung']
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 #CLASS_WEIGHTS = "weighted" #"weighted" #[0.01, 0.3, 0.69]
 #CLASS_WEIGHTS =[19, 4, 6, 35, 3, 38, 85, 5, 52, 123, 54]
-
+register_model=False
 ########################################################
 #################### PREDICTION ########################
 ########################################################
