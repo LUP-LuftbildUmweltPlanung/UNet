@@ -1,10 +1,12 @@
 import glob
 import os
+import shutil
 import sys
 import urllib.parse
 import warnings
 import numpy as np
 import torch
+import socket
 import mlflow
 import mlflow.pytorch
 from mlflow.tracking import MlflowClient
@@ -151,6 +153,8 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         all_classes :       If the prediction should contain all prediction values for all classes (default=False)
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
+    # ✅ Get PC name dynamically
+    pc_name = socket.gethostname()
     with mlflow.start_run(run_name=f"Prediction_{os.path.basename(predict_model).split('.')[0]}"):
         # ✅ Log parameters
         mlflow.log_param("predict_model", predict_model)
@@ -164,6 +168,11 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         mlflow.log_param("year", year)
         mlflow.log_param("validation_vision", validation_vision)
         mlflow.log_param("class_zero", class_zero)
+
+        # Set the MLflow Source Name with PC name
+        mlflow.set_tag("mlflow.source.name", f"{pc_name}_params_and_main.py")
+        # Log PC name as a parameter in MLflow
+        mlflow.log_param("pc_name", pc_name)
 
         learn = load_learner(Path(predict_model))
 
@@ -313,14 +322,54 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
             })
 
             # ✅ Save evaluation results as a CSV for consistency
+            def get_local_path_from_artifact_uri(artifact_uri: str, experiment_id: str) -> Path:
+                """
+                Convert MLflow Linux-style artifact URI to a proper Windows path.
+                Inserts experiment_id between mlruns and run_id.
+                """
+                from urllib.parse import urlparse
+                from pathlib import Path
+
+                parsed = urlparse(artifact_uri)
+                linux_str = parsed.path.replace("\\", "/")
+
+                root_prefix = "/home/embedding/Data_Center/qnap3b"
+                if not linux_str.startswith(root_prefix):
+                    raise ValueError(f"❌ Unexpected path format. Got: {linux_str}")
+
+                # Extract relative part after root
+                relative = linux_str[len(root_prefix):].lstrip("/")
+                parts = Path(relative).parts
+
+                try:
+                    # Locate 'mlruns' and isolate the run_id
+                    mlruns_idx = parts.index("mlruns")
+                    run_id = parts[mlruns_idx + 1]
+                    rest = parts[mlruns_idx + 2:]  # e.g., ['artifacts', 'models']
+
+                    corrected = Path("mlruns") / run_id / Path(*rest)
+                    return Path("N:/MnD/hub/mlflow") / corrected
+                except Exception as e:
+                    raise ValueError(f"❌ Could not parse run_id and artifact path from: {parts}\n{e}")
+
+            artifact_dir = get_local_path_from_artifact_uri(
+                mlflow.get_artifact_uri(),
+                experiment_id=mlflow.active_run().info.experiment_id
+            )
+            os.makedirs(artifact_dir, exist_ok=True)
+
             eval_results_csv = os.path.join(output_folder, "unet_evaluation_results.csv")
             eval_results_df.to_csv(eval_results_csv, index=False)
-            mlflow.log_artifact(eval_results_csv)
-
-            mlflow.log_artifact(cm_path)
-            mlflow.log_artifact(class_report_path)
-
-        print(f"Prediction results saved in {output_folder}.")
+            # ✅ Manually copy prediction output files to artifact folder
+            try:
+                for f in [eval_results_csv, cm_path, class_report_path]:
+                    if os.path.exists(f):
+                        shutil.copy2(f, artifact_dir)
+                        print(f"📁 Copied to artifact folder: {Path(f).name}")
+                    else:
+                        print(f"⚠️ File not found: {f}")
+            except Exception as e:
+                print(f"❌ Error copying prediction outputs to artifact folder: {e}")
         if merge:
             # go through the information for all tiles, find upper left most corner and lower right most corner
             # --> these define the extend of the final output
