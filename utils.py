@@ -478,4 +478,3 @@ def get_image_metadata(path):
 
     # ✅ Return structured metadata dictionary
     return patch_size, resolution, number_of_bands
-
