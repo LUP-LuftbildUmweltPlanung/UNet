@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import math
 import shutil
 import mlflow.pytorch
-from mlflow.tracking import MlflowClient
+import socket
 import sys
 from torch import nn, Tensor
 import json
@@ -37,6 +37,7 @@ from fastai.torch_core import params, to_device, apply_init
 
 from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
+
 def log_metrics_mlflow(hist_path, monitor):
     """
     Logs training metrics (train_loss, valid_loss, dice_multi) from history CSV to MLflow.
@@ -331,13 +332,17 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                class_zero, register_model):
     try:
-        # ✅ Check if an MLflow run is already active; if not, start one
+        pc_name = socket.gethostname()
+        #  Check if an MLflow run 
         if mlflow.active_run():
             print(f"⚠️ Using existing MLflow run: {mlflow.active_run().info.run_id}")
         else:
             mlflow.start_run(run_name=description)
-            print(f"🚀 Started MLflow run: {mlflow.active_run().info.run_id}")
-
+            print(f" Started MLflow run: {mlflow.active_run().info.run_id}")
+            # Log system or run-level params/tags
+            #mlflow.set_tag("mlflow.source.name", pc_name)
+            mlflow.log_param("pc_name", pc_name)
+            
             # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
             data_path = Path(data_path)
             # Get datatype of training data
@@ -376,7 +381,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                                     VALID_SCENES=VALID_SCENES,
                                     ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
                                     class_zero=class_zero)
-            # ✅ Structure the parameters dictionary like the JSON file
+            # Structure the parameters dictionary like the JSON file
             params_dict = {
                 "transforms": bool(transforms),
                 "BATCH_SIZE": BATCH_SIZE,
@@ -451,13 +456,48 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                            existing_model=existing_model, self_attention=self_attention,
                            export_model_summary=export_model_summary)
 
-        # ✅ Call `log_metrics_mlflow()` to log metrics to MLflow
+        # Call `log_metrics_mlflow()` to log metrics to MLflow
         hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
         log_metrics_mlflow(hist_path, monitor)
         if os.path.exists(hist_path):
             mlflow.log_artifact(hist_path)
 
-        # ✅ Log Model to MLflow (Conditionally)
+        def get_local_path_from_artifact_uri(artifact_uri: str, experiment_id: str) -> Path:
+            """
+            Convert MLflow Linux-style artifact URI to a proper Windows path.
+            Inserts experiment_id between mlruns and run_id.
+            """
+            from urllib.parse import urlparse
+            from pathlib import Path
+
+            parsed = urlparse(artifact_uri)
+            linux_str = parsed.path.replace("\\", "/")
+
+            root_prefix = "/home/embedding/Data_Center/qnap3b"
+            if not linux_str.startswith(root_prefix):
+                raise ValueError(f"❌ Unexpected path format. Got: {linux_str}")
+
+            # Extract relative part after root
+            relative = linux_str[len(root_prefix):].lstrip("/")
+            parts = Path(relative).parts
+
+            try:
+                # Locate 'mlruns' and isolate the run_id
+                mlruns_idx = parts.index("mlruns")
+                run_id = parts[mlruns_idx + 1]
+                rest = parts[mlruns_idx + 2:]  # e.g., ['artifacts', 'models']
+
+                corrected = Path("mlruns") / run_id / Path(*rest)
+                return Path("N:/MnD/hub/mlflow") / corrected
+            except Exception as e:
+                raise ValueError(f"❌ Could not parse run_id and artifact path from: {parts}\n{e}")
+
+        artifact_dir = get_local_path_from_artifact_uri(
+            mlflow.get_artifact_uri(),
+            experiment_id=mlflow.active_run().info.experiment_id
+        )
+
+        #  Log Model to MLflow (Conditionally)
         try:
             artifact_path = "models"  # ✅ Use relative path instead of `mlflow.get_artifact_uri("models")`
             if register_model:
@@ -480,6 +520,26 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
 
         except Exception as e:
             print(f"❌ Error during training: {e}")
+        # ✅ Copy all model files to the MLflow artifact directory manually
+        import shutil
+        try:
+            print(f"📁 Copying model output files to: {artifact_dir}")
+            os.makedirs(artifact_dir, exist_ok=True)
+
+            for file in os.listdir(new_path):
+                src_file = os.path.join(new_path, file)
+                dst_file = os.path.join(artifact_dir, file)
+                if os.path.isfile(src_file):
+                    shutil.copy2(src_file, dst_file)
+                    print(f"✅ Copied: {file}")
+        except Exception as copy_error:
+            print(f"❌ Error while copying model files to artifact dir: {copy_error}")
+        # ✅ Log the artifacts to MLflow so they appear in the UI
+        for file in os.listdir(new_path):
+            src_file = os.path.join(new_path, file)
+            if os.path.isfile(src_file):
+                mlflow.log_artifact(src_file)
+                print(f"📦 Logged artifact: {file}")
 
 
     finally:
