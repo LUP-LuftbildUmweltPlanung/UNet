@@ -2,14 +2,15 @@ from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
 
-import os 
+import os
 import time
+import mlflow
+import mlflow.pytorch
+from mlflow.tracking import MlflowClient
 import torch
 import pathlib
 import warnings
 import albumentations as A
-import mlflow.pytorch
-from mlflow.tracking import MlflowClient
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -17,36 +18,49 @@ from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 
-# Set MLflow request timeout via environment variable
+import os
+from mlflow.tracking import MlflowClient
+import mlflow
+
+# ✅ Set MLflow request timeout
 os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
 
-# Define MLflow tracking URI
-MLFLOW_TRACKING_URI = "http://127.0.0.1:8080"  # ✅ Corrected to 127.0.0.1
+# ✅ Define tracking URI to connect to your Linux MLflow server
+MLFLOW_TRACKING_URI = "http://192.168.0.75:8080"
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
 print(f"📢 MLflow Tracking URI Set to: {mlflow.get_tracking_uri()}")
 
-# Initialize MLflow Client
+# ✅ Initialize MLflow client
 client = MlflowClient()
 
-# Define Experiment Name
-experiment_name = "UNET"
+# ✅ Define experiment name and correct artifact location
+experiment_name = "Beschirmung_Model" # please change it according to your project name
+artifact_location = "file:///home/embedding/Data_Center/qnap3b/MnD/hub/mlflow/mlruns" # Keep it for the experiment path
 
-# Define Artifact Location
-artifact_location = r"file:///H:/MLflow/UNet-Stable/mlflow"
-
-# ✅ Check if the experiment exists, if not, create it
+# ✅ Create or fix experiment if artifact location is incorrect
 experiment = client.get_experiment_by_name(experiment_name)
 
-if experiment is None:
-    print(f"📢 Experiment '{experiment_name}' not found. Creating a new one...")
-    experiment_id = client.create_experiment(name=experiment_name, artifact_location=artifact_location)
-    experiment = client.get_experiment(experiment_id)
-    print(f"✅ New Experiment Created: {experiment_name} (ID: {experiment_id})")
-else:
-    print(f"✅ Using Existing Experiment: {experiment_name} (ID: {experiment.experiment_id})")
+if experiment is None or not experiment.artifact_location.startswith(artifact_location):
+    if experiment is not None:
+        print(f" Experiment found, but artifact location is incorrect:")
+        print(f"   Expected: {artifact_location}")
+        print(f"   Found:    {experiment.artifact_location}")
+        print(" Deleting and recreating experiment with correct artifact location...")
+        client.delete_experiment(experiment.experiment_id)
 
-# ✅ Set the experiment for logging runs
+    experiment_id = client.create_experiment(
+        name=experiment_name,
+        artifact_location=artifact_location
+    )
+    experiment = client.get_experiment(experiment_id)
+    print(f" New Experiment Created: {experiment.name} (ID: {experiment.experiment_id})")
+else:
+    experiment_id = experiment.experiment_id
+    print(f" Using Existing Experiment: {experiment.name} (ID: {experiment.experiment_id})")
+
+# ✅ Set experiment for this run context
 mlflow.set_experiment(experiment_name)
+
 
 
 
@@ -137,12 +151,12 @@ n_transform_imgs = 1 # Percentage of augmented images [0-1]. Decimals always be 
 aug_pipe = A.Compose([
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.
-#    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
-#        brightness_limit=(-0.1, 0.1),
-#        contrast_limit=(-0.1, 0.1),
-#        p=0.5
- #   ),
-#    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
+    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
+        brightness_limit=(-0.1, 0.1),
+        contrast_limit=(-0.1, 0.1),
+        p=0.5
+    ),
+    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
 
 ])  # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
 
@@ -202,7 +216,7 @@ def main():
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                    VALID_SCENES,
                    CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-                   class_zero)
+                   class_zero, register_model)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI,
