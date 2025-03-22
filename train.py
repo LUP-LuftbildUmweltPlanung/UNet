@@ -268,9 +268,6 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         print(learn.model)
         sys.stdout.close()
         sys.stdout = default_stdout
-        # add to mlfow:
-        if os.path.exists(summary_path):
-            mlflow.log_artifact(summary_path)
 
     if lr_finder is not None:
         lr = find_lr(learn, lr_finder)
@@ -315,25 +312,16 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     plt.savefig(loss_plot_path, dpi=200)
     plt.close()  # ✅ Free memory
 
-    # Ensure MLflow is active before logging
-    if mlflow.active_run():
-        mlflow.log_artifact(loss_plot_path)
-        print(f"✅ Loss plot logged to MLflow: {loss_plot_path}")
-    else:
-        print("❌ Error: No active MLflow run found! Loss plot NOT logged.")
-
     return learn
 
 #### define train function to be able to use for train_multi and new params approach
-
-
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
                class_zero, register_model):
     try:
         pc_name = socket.gethostname()
-        #  Check if an MLflow run 
+        #  Check if an MLflow run
         if mlflow.active_run():
             print(f"⚠️ Using existing MLflow run: {mlflow.active_run().info.run_id}")
         else:
@@ -342,7 +330,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
             # Log system or run-level params/tags
             #mlflow.set_tag("mlflow.source.name", pc_name)
             mlflow.log_param("pc_name", pc_name)
-            
+
             # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
             data_path = Path(data_path)
             # Get datatype of training data
@@ -430,15 +418,6 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
             os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
             visualize_data(targets_np, model_path)
             os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
-            # save in mlflow:
-            image_plot_path = str(model_path).rsplit('.', 1)[0] + "_image_plot.png"
-            if os.path.exists(image_plot_path):
-                mlflow.log_artifact(image_plot_path)
-            # mask to mlflow
-            mask_plot_path = str(model_path).rsplit('.', 1)[0] + "_mask_plot.png"
-            if os.path.exists(mask_plot_path):
-                mlflow.log_artifact(mask_plot_path)
-
 
         print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
         # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
@@ -459,13 +438,11 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         # Call `log_metrics_mlflow()` to log metrics to MLflow
         hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
         log_metrics_mlflow(hist_path, monitor)
-        if os.path.exists(hist_path):
-            mlflow.log_artifact(hist_path)
 
         def get_local_path_from_artifact_uri(artifact_uri: str, experiment_id: str) -> Path:
             """
             Convert MLflow Linux-style artifact URI to a proper Windows path.
-            Inserts experiment_id between mlruns and run_id.
+            Handles artifact paths like: mlruns/<experiment_id>/<run_id>/artifacts
             """
             from urllib.parse import urlparse
             from pathlib import Path
@@ -482,20 +459,24 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
             parts = Path(relative).parts
 
             try:
-                # Locate 'mlruns' and isolate the run_id
+                # Expected: ['mlruns', experiment_id, run_id, ...]
                 mlruns_idx = parts.index("mlruns")
-                run_id = parts[mlruns_idx + 1]
-                rest = parts[mlruns_idx + 2:]  # e.g., ['artifacts', 'models']
+                exp_id_from_uri = parts[mlruns_idx + 1]
+                run_id = parts[mlruns_idx + 2]
+                rest = parts[mlruns_idx + 3:]  # e.g., ['artifacts', 'models']
 
-                corrected = Path("mlruns") / run_id / Path(*rest)
+                # ✅ Reconstruct path as is
+                corrected = Path("mlruns") / exp_id_from_uri / run_id / Path(*rest)
                 return Path("N:/MnD/hub/mlflow") / corrected
+
             except Exception as e:
-                raise ValueError(f"❌ Could not parse run_id and artifact path from: {parts}\n{e}")
+                raise ValueError(f"❌ Could not parse experiment_id and run_id from: {parts}\n{e}")
 
         artifact_dir = get_local_path_from_artifact_uri(
             mlflow.get_artifact_uri(),
             experiment_id=mlflow.active_run().info.experiment_id
         )
+
 
         #  Log Model to MLflow (Conditionally)
         try:
