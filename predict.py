@@ -104,14 +104,14 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
     # Compute the confusion matrix
     cm = confusion_matrix(y_true, y_pred)
     class_report = classification_report(y_true, y_pred, output_dict=True, zero_division=1)
-    #  Extract only class names (exclude "accuracy", "macro avg", etc.)
+    # ✅ Extract only class names (exclude "accuracy", "macro avg", etc.)
     class_labels = [str(label) for label in class_report.keys() if
                     label not in ["accuracy", "macro avg", "weighted avg"]]
 
     # Convert the classification report dictionary into a DataFrame for visualization
     dataframe = pd.DataFrame(class_report).transpose()
 
-    #  Save classification report as an image
+    # ✅ Save classification report as an image
     cm_path = os.path.join(valid_path, "Confusion_Matrix.png")
     classification_report_path = os.path.join(valid_path, "classification_report.png")
 
@@ -125,7 +125,7 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
     plt.savefig(classification_report_path)
     plt.close()
 
-    #  Plot and save the confusion matrix heatmap
+    # ✅ Plot and save the confusion matrix heatmap
     plt.figure(figsize=(10, 7))
     sns.heatmap(cm, annot=True, fmt='d', cmap='crest', xticklabels=class_labels, yticklabels=class_labels)
     plt.xlabel('Predicted')
@@ -156,10 +156,10 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         all_classes :       If the prediction should contain all prediction values for all classes (default=False)
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
-    #  Get PC name dynamically
+    # ✅ Get PC name dynamically
     pc_name = socket.gethostname()
     with mlflow.start_run(run_name=f"Prediction_{os.path.basename(predict_model).split('.')[0]}"):
-        #  Log parameters
+        # ✅ Log parameters
         mlflow.log_param("predict_model", predict_model)
         mlflow.log_param("predict_path", predict_path)
         mlflow.log_param("regression", regression)
@@ -187,7 +187,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         # Detect if the OS is Windows
         is_windows = sys.platform.startswith("win")
 
-        #  Apply different path handling for Windows vs Linux
+        # ✅ Apply different path handling for Windows vs Linux
         if is_windows:
             parsed_uri = urllib.parse.urlparse(artifact_uri)
             if parsed_uri.scheme == "file":
@@ -201,7 +201,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
             # On Linux/Mac, just use the artifact path normally
             output_folder_mlflow = Path(artifact_uri) / "predictions"
 
-        #  Ensure the directory exists
+        # ✅ Ensure the directory exists
         os.makedirs(output_folder_mlflow, exist_ok=True)
         mlflow.log_param("output_folder_mlflow", str(output_folder_mlflow))
 
@@ -284,10 +284,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                     dtype = gdal.GDT_Float32
                 else:
                     dtype = gdal.GDT_Byte
-
-                #  Save prediction in both locations
-                output_file_mlflow = str(output_folder_mlflow / os.path.basename(tiles[i]))
-
+                    
                 if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
                     class_lst = class_lst.numpy()
                     class_lst *= ((128 / 4) - 1) # values range from 0 to 1. to values range from 0 to 31, stored efficiently as GDT_Byte, saving disk space
@@ -306,14 +303,14 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
 
         if validation_vision:
             cm, class_report, cm_path, class_report_path = plot_valid_predict(output_folder, predict_path, regression, merge, class_zero)
-            #  Log metrics correctly
+            # ✅ Log metrics correctly
             mlflow.log_metric("accuracy", class_report["accuracy"] if "accuracy" in class_report else class_report.get(
                 "weighted avg", {}).get("precision", 0))
             mlflow.log_metric("precision", class_report["weighted avg"]["precision"])
             mlflow.log_metric("recall", class_report["weighted avg"]["recall"])
             mlflow.log_metric("f1_score", class_report["weighted avg"]["f1-score"])
 
-            #  Create a structured DataFrame for detailed evaluation results
+            # ✅ Create a structured DataFrame for detailed evaluation results
             eval_results_df = pd.DataFrame({
                 "metric": ["accuracy", "precision", "recall", "f1_score"],
                 "value": [
@@ -323,12 +320,11 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                     class_report["weighted avg"]["f1-score"]
                 ]
             })
-
-            #  Save evaluation results as a CSV for consistency
+            # ✅ Save evaluation results as a CSV for consistency
             def get_local_path_from_artifact_uri(artifact_uri: str, experiment_id: str) -> Path:
                 """
                 Convert MLflow Linux-style artifact URI to a proper Windows path.
-                Inserts experiment_id between mlruns and run_id.
+                Handles artifact paths like: mlruns/<experiment_id>/<run_id>/artifacts
                 """
                 from urllib.parse import urlparse
                 from pathlib import Path
@@ -345,15 +341,18 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                 parts = Path(relative).parts
 
                 try:
-                    # Locate 'mlruns' and isolate the run_id
+                    # Expected: ['mlruns', experiment_id, run_id, ...]
                     mlruns_idx = parts.index("mlruns")
-                    run_id = parts[mlruns_idx + 1]
-                    rest = parts[mlruns_idx + 2:]  # e.g., ['artifacts', 'models']
+                    exp_id_from_uri = parts[mlruns_idx + 1]
+                    run_id = parts[mlruns_idx + 2]
+                    rest = parts[mlruns_idx + 3:]  # e.g., ['artifacts', 'models']
 
-                    corrected = Path("mlruns") / run_id / Path(*rest)
+                    # ✅ Reconstruct path as is
+                    corrected = Path("mlruns") / exp_id_from_uri / run_id / Path(*rest)
                     return Path("N:/MnD/hub/mlflow") / corrected
+
                 except Exception as e:
-                    raise ValueError(f"❌ Could not parse run_id and artifact path from: {parts}\n{e}")
+                    raise ValueError(f"❌ Could not parse experiment_id and run_id from: {parts}\n{e}")
 
             artifact_dir = get_local_path_from_artifact_uri(
                 mlflow.get_artifact_uri(),
@@ -363,7 +362,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
 
             eval_results_csv = os.path.join(output_folder, "unet_evaluation_results.csv")
             eval_results_df.to_csv(eval_results_csv, index=False)
-            # Manually copy prediction output files to artifact folder
+            # ✅ Manually copy prediction output files to artifact folder
             try:
                 for f in [eval_results_csv, cm_path, class_report_path]:
                     if os.path.exists(f):
@@ -469,8 +468,6 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
             output_file = os.path.join(output_folder, output_file_name)
             print(output_file)
 
-
-
             store_tif(output_file, merged_raster, dtype,
                       [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
                       geoproj_for_merge, nodata, class_zero)
@@ -479,7 +476,5 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
             store_tif(output_file_mlflow, merged_raster, dtype,
                       [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
                       geoproj_for_merge, nodata, class_zero)
-
-
 
             print(f"Prediction stored in {output_folder}.")
