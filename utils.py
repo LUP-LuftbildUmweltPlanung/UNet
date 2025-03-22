@@ -433,12 +433,6 @@ def process_and_save_params(data_path, aug_pipe, model_path, description, transf
     # Save the formatted JSON string to a file
     with open(json_path, 'w') as json_file:
         json_file.write(formatted_json_string)
-
-    # ✅ If MLflow is active, save JSON as an artifact
-    if mlflow.active_run():
-        mlflow.log_artifact(json_path)
-        print(f"✅ Parameters JSON logged to MLflow: {json_path}")
-
     print(f'Parameters saved to {json_path}')
 
 
