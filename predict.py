@@ -87,16 +87,14 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
             with rasterio.open(true_path) as src_true:
                 true_data = src_true.read(1).astype(np.int64)  # Assuming single band for class labels
 
-            # Determine the most frequent class in the tile
-            pred_class = np.argmax(np.bincount(pred_data.flatten()))
-            true_class = np.argmax(np.bincount(true_data.flatten()))
 
+            # If class_zero is true, shift class values accordingly
             if class_zero:
-                true_class = true_class[true_class != 0] - 1
+                # true_class = true_class[true_class != 0] - 1
+                true_data[true_data != 0] -= 1
 
-
-            y_true.append(true_class)
-            y_pred.append(pred_class)
+            y_true.extend(true_data.flatten())
+            y_pred.extend(pred_data.flatten())
 
     if not y_true or not y_pred:
         raise ValueError("No valid tiles found for evaluation")
