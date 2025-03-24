@@ -15,7 +15,7 @@ from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 
-
+from train import CombinedLoss
 
 
 # PARAMETERS
@@ -84,7 +84,7 @@ self_attention = True
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
-loss_func = CrossEntropyLossFlat(axis=1)  # FocalLossFlat(gamma=2, axis=1)
+loss_func = CrossEntropyLossFlat(axis=1)  # FocalLossFlat(gamma=2, axis=1) # CombinedLoss(axis=1, smooth=1.0, alpha=1.0)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
 monitor = 'valid_loss'  # 'dice_multi'  'r2_score'

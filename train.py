@@ -8,6 +8,7 @@ import shutil
 import sys
 # from sklearn.metrics import confusion_matrix, classification_report
 from torch import nn, Tensor
+import torch.nn.functional as F
 import json
 from pathlib import Path
 from typing import Optional
@@ -25,7 +26,7 @@ from fastai.vision.learner import model_meta, create_body
 from fastai.layers import NormType
 from fastai.learner import Learner
 from fastai.learner import load_learner
-from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat
+from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 from fastai.metrics import rmse, R2Score, DiceMulti, foreground_acc
 from fastai.optimizer import Adam
 
@@ -34,7 +35,7 @@ from fastai.callback.tracker import SaveModelCallback
 from fastai.data.transforms import Normalize
 from fastai.torch_core import params, to_device, apply_init
 
-from fastcore.basics import risinstance, defaults, ifnone
+from fastcore.basics import risinstance, defaults, ifnone, store_attr
 from fastcore.foundation import L
 
 
@@ -69,6 +70,50 @@ def _add_norm(dls, meta, pretrained):
     if not dls.after_batch.fs.filter(risinstance(Normalize)):
         dls.add_tfms([Normalize.from_stats(*stats)], 'after_batch')
 
+
+# Add combined loss function (Dice Loss and Focal loss combined)
+class CombinedLoss:
+
+    def __init__(self, axis=1, smooth=1., alpha=1.):
+        store_attr()
+        self.focal_loss = FocalLossFlat(axis=axis)
+        self.dice_loss = DiceLoss(axis, smooth)
+
+    def __call__(self, pred, targ):
+        return self.focal_loss(pred, targ) + self.alpha * self.dice_loss(pred, targ)
+
+    def decodes(self, x):    return x.argmax(dim=self.axis)
+
+    def activation(self, x): return F.softmax(x, dim=self.axis)
+
+
+# Add Attention Gates to code
+class AttentionGate(nn.Module):
+    def __init__(self, F_g, F_l, F_int):
+        super(AttentionGate, self).__init__()
+        self.W_g = nn.Conv2d(F_g, F_int, kernel_size=1)
+        self.W_x = nn.Conv2d(F_l, F_int, kernel_size=1)
+        self.relu = nn.ReLU(inplace=True)
+        self.psi = nn.Conv2d(F_int, 1, kernel_size=1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, g, x):
+        g1 = self.W_g(g)
+        x1 = self.W_x(x)
+        psi = self.relu(g1 + x1)
+        psi = self.sigmoid(self.psi(psi))
+        return x * psi  # Verstärkt relevante Features
+
+
+def add_attention_to_unet(unet):
+    for name, layer in unet.named_children():
+        if isinstance(layer, models.unet.DynamicUnet):
+            for idx in range(len(layer.sfs)):
+                in_channels = layer.sfs[idx].features.shape[1]
+                gate_channels = layer.sfs[max(idx - 1, 0)].features.shape[1]
+                attn_gate = AttentionGate(gate_channels, in_channels, in_channels // 2)
+                setattr(layer, f'attn_{idx}', attn_gate)
+    return unet
 
 def default_split(m):
     """Default split of a model between body and head"""
@@ -208,8 +253,13 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
             warnings.warn("Monitor not recognised. Assuming maximization.")
     cbs = [SaveModelCallback(monitor=monitor, comp=comp, fname='best-model'), CSVLogger()]
 
-    loss_func.func.weight = weights
-    # print('weights_tensor: ',loss_func.func.weight)
+    if isinstance(loss_func, CrossEntropyLossFlat):
+        loss_func.func.weight = weights
+        # print('weights_tensor: ',loss_func.func.weight)
+    elif isinstance(loss_func, CombinedLoss):
+        loss_func.focal_loss.func.weight = weights
+    else:
+        pass
 
     if existing_model is None:
         learn = unet_learner_MS(dls,  # DataLoaders
