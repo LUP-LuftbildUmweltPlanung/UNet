@@ -80,11 +80,12 @@ validation_vision = True # Confusion matrix and classification report figures, K
 
 enable_extra_parameters = True  # only for experienced users
 
-self_attention = True
+self_attention = True # Identifies global context and improves overall understanding, use if global context is important
+attention_gates = True # Filter out irrelevant features in skip connections, use if an important class is underrepresented
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
-loss_func = CrossEntropyLossFlat(axis=1)  # FocalLossFlat(gamma=2, axis=1) # CombinedLoss(axis=1, smooth=1.0, alpha=1.0)
+loss_func = CrossEntropyLossFlat(axis=1) # CombinedLoss(axis=1, smooth=1.0, alpha=1.0) # FocalLossFlat(gamma=2, axis=1)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
 monitor = 'valid_loss'  # 'dice_multi'  'r2_score'
@@ -105,6 +106,10 @@ n_transform_imgs = 1 # Percentage of augmented images [0-1]. Decimals always be 
 aug_pipe = A.Compose([
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.
+#    A.GaussianBlur(blur_limit=7, p=0.5),  # Blurring with a kernel of 3 to 7 pixels
+#    A.CLAHE(clip_limit=4.0, tile_grid_size=(8, 8), p=0.5),  # Contrast enhancement
+#    A.HueSaturationValue(hue_shift_limit=20, sat_shift_limit=30, val_shift_limit=20, p=0.5),  # Color adjustments
+#    A.ChannelShuffle(p=0.5),  # Randomly shuffling the color channels
 #    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
 #        brightness_limit=(-0.1, 0.1),
 #        contrast_limit=(-0.1, 0.1),
@@ -121,7 +126,7 @@ aug_pipe = A.Compose([
 def main():
     """Main function."""
 
-    global large_file, specific_class, all_classes, transforms, VALID_SCENES, self_attention, monitor, loss_func, LR_FINDER, ENCODER_FACTOR, ARCHITECTURE, enable_regression, max_empty
+    global large_file, specific_class, all_classes, transforms, VALID_SCENES, self_attention, monitor, loss_func, LR_FINDER, ENCODER_FACTOR, ARCHITECTURE, enable_regression, max_empty, attention_gates
 
     start_time = time.time()
     temp = pathlib.PosixPath
@@ -144,6 +149,7 @@ def main():
         ARCHITECTURE = xresnet34
         transforms = transforms
         self_attention = False
+        attention_gates = False
 
     # Check if CUDA is available
     if torch.cuda.is_available():
@@ -170,7 +176,7 @@ def main():
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                    VALID_SCENES,
                    CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-                   class_zero)
+                   class_zero, attention_gates)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI,

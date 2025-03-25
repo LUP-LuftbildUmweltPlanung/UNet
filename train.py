@@ -145,7 +145,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
                     loss_func=None, norm_type: Optional[NormType] = NormType, opt_func=Adam, lr=defaults.lr,
                     splitter=None, cbs=None, metrics=None, path=None,
                     model_dir='models', wd=None, wd_bn_bias=False, train_bn=True, moms=(0.95, 0.85, 0.95),
-                    regression=False, self_attention=False):
+                    regression=False, self_attention=False, attention_gates=False):
     """
     Creates a fastai Unet Learner based on a classification architecture using Dynamic Unet.
     To allow for more input-bands, the first layer of the classification architecture is removed
@@ -188,6 +188,9 @@ def unet_learner_MS(dls, arch, pretrained=True,
                                               last_cross=True,
                                               bottle=False), dls.device)
 
+    if attention_gates:
+        model = add_attention_to_unet(model)  # Add Attention Gates to model
+
     splitter = ifnone(splitter, meta['split'])
     if regression:
         learn = Learner_adjust(dls=dls, model=model, loss_func=loss_func, opt_func=opt_func, lr=lr, splitter=splitter,
@@ -206,7 +209,7 @@ def unet_learner_MS(dls, arch, pretrained=True,
 
 
 def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_factor, lr_finder=None, regression=False,
-               loss_func=None, monitor=None, existing_model=None, self_attention=False, export_model_summary=False):
+               loss_func=None, monitor=None, existing_model=None, self_attention=False, export_model_summary=False, attention_gates=False):
     """
     Takes a created unet_learner and trains the model on data provided within the dataloaders.
 
@@ -269,7 +272,8 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
                                 metrics=metrics,
                                 cbs=cbs,
                                 regression=regression,
-                                self_attention=self_attention
+                                self_attention=self_attention,
+                                attention_gates=attention_gates
                                 )
     else:
         learn = load_learner(existing_model)
@@ -339,7 +343,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES,
                CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-               class_zero):
+               class_zero, attention_gates):
     # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
     data_path = Path(data_path)
     # Get datatype of training data
@@ -377,7 +381,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                             loss_func=loss_func, self_attention=self_attention, monitor=monitor,
                             VALID_SCENES=VALID_SCENES,
                             ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
-                            class_zero=class_zero)
+                            class_zero=class_zero, attention_gates=attention_gates)
 
     # Data Block for Reference Storage
     db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
@@ -418,6 +422,6 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                        path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
                        regression=enable_regression, loss_func=loss_func, monitor=monitor,
                        existing_model=existing_model, self_attention=self_attention,
-                       export_model_summary=export_model_summary)
+                       export_model_summary=export_model_summary, attention_gates=attention_gates)
 
     learn.export(model_path)
