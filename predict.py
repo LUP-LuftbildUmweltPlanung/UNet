@@ -1,15 +1,11 @@
 import glob
 import os
-import shutil
-import sys
-import urllib.parse
 import warnings
 import numpy as np
 import torch
 import socket
 import mlflow
 import mlflow.pytorch
-from mlflow.tracking import MlflowClient
 import time
 from tqdm import tqdm
 from pathlib import Path
@@ -20,6 +16,31 @@ import rasterio
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+
+
+
+def load_fastai_model_flexible(model_uri):
+    """
+    Load a FastAI model from a local path, MLflow run URI, or artifact URI.
+
+    Parameters:
+        model_uri (str):
+            - Local path: "/path/to/model.pkl"
+            - MLflow run artifact: "mlflow-artifacts:/<exp_id>/<run_id>/artifacts/<model.pkl>"
+            - Run ID style: "runs:/<run_id>/Beschirmung.pkl"
+
+    Returns:
+        Learner object loaded via fastai.
+    """
+    if model_uri.startswith("mlflow-artifacts:/") or model_uri.startswith("runs:/"):
+        print(f" Downloading model artifact from MLflow: {model_uri}")
+        local_path = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
+        return load_learner(local_path)
+    elif Path(model_uri).exists():
+        print(f" Loading model from local path: {model_uri}")
+        return load_learner(model_uri)
+    else:
+        raise ValueError(f" Unsupported or non-existent model path: {model_uri}")
 
 
 # save the predicted tiles
@@ -87,7 +108,6 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
             with rasterio.open(true_path) as src_true:
                 true_data = src_true.read(1).astype(np.int64)  # Assuming single band for class labels
 
-
             # If class_zero is true, shift class values accordingly
             if class_zero:
                 # true_class = true_class[true_class != 0] - 1
@@ -102,14 +122,14 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
     # Compute the confusion matrix
     cm = confusion_matrix(y_true, y_pred)
     class_report = classification_report(y_true, y_pred, output_dict=True, zero_division=1)
-    # ✅ Extract only class names (exclude "accuracy", "macro avg", etc.)
+    #  Extract only class names (exclude "accuracy", "macro avg", etc.)
     class_labels = [str(label) for label in class_report.keys() if
                     label not in ["accuracy", "macro avg", "weighted avg"]]
 
     # Convert the classification report dictionary into a DataFrame for visualization
     dataframe = pd.DataFrame(class_report).transpose()
 
-    # ✅ Save classification report as an image
+    #  Save classification report as an image
     cm_path = os.path.join(valid_path, "Confusion_Matrix.png")
     classification_report_path = os.path.join(valid_path, "classification_report.png")
 
@@ -123,7 +143,7 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
     plt.savefig(classification_report_path)
     plt.close()
 
-    # ✅ Plot and save the confusion matrix heatmap
+    #  Plot and save the confusion matrix heatmap
     plt.figure(figsize=(10, 7))
     sns.heatmap(cm, annot=True, fmt='d', cmap='crest', xticklabels=class_labels, yticklabels=class_labels)
     plt.xlabel('Predicted')
@@ -154,10 +174,10 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         all_classes :       If the prediction should contain all prediction values for all classes (default=False)
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
-    # ✅ Get PC name dynamically
+    #  Get PC name dynamically
     pc_name = socket.gethostname()
     with mlflow.start_run(run_name=f"Prediction_{os.path.basename(predict_model).split('.')[0]}"):
-        # ✅ Log parameters
+        #  Log parameters
         mlflow.log_param("predict_model", predict_model)
         mlflow.log_param("predict_path", predict_path)
         mlflow.log_param("regression", regression)
@@ -175,35 +195,22 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         # Log PC name as a parameter in MLflow
         mlflow.log_param("pc_name", pc_name)
 
-        learn = load_learner(Path(predict_model))
+        # Mlflow the path of the valid data
+        # Create a minimal DataFrame with just the path
+        df = pd.DataFrame([], columns=[])  # empty dataset
+
+        # Log it using from_pandas with the folder path as the source
+        dataset = mlflow.data.from_pandas(df, source=predict_path, name="prediction_tiles")
+        mlflow.log_input(dataset, context="inference")
+
+        print(f" Logged dataset folder path as input: {predict_path}")
+
+        print(f" Logged dataset source path: {predict_path}")
+
+       # learn = load_learner(Path(predict_model))
+        learn = load_fastai_model_flexible(predict_model)
 
         path = Path(predict_path)
-
-        # Get MLflow artifact directory
-        artifact_uri = mlflow.get_artifact_uri()
-
-        # Detect if the OS is Windows
-        is_windows = sys.platform.startswith("win")
-
-        # ✅ Apply different path handling for Windows vs Linux
-        if is_windows:
-            parsed_uri = urllib.parse.urlparse(artifact_uri)
-            if parsed_uri.scheme == "file":
-                output_folder_mlflow = Path(parsed_uri.path.lstrip("/")) / "predictions"
-            else:
-                output_folder_mlflow = Path(artifact_uri) / "predictions"
-
-            # Convert to absolute Windows path
-            output_folder_mlflow = output_folder_mlflow.resolve()
-        else:
-            # On Linux/Mac, just use the artifact path normally
-            output_folder_mlflow = Path(artifact_uri) / "predictions"
-
-        # ✅ Ensure the directory exists
-        os.makedirs(output_folder_mlflow, exist_ok=True)
-        mlflow.log_param("output_folder_mlflow", str(output_folder_mlflow))
-
-        print(f"📁 Final MLflow artifact path: {output_folder_mlflow}")
 
         if not merge:
             output_folder = path.parent / ('predicted_tiles_' + Path(predict_model).stem)
@@ -282,7 +289,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                     dtype = gdal.GDT_Float32
                 else:
                     dtype = gdal.GDT_Byte
-                    
+
                 if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
                     class_lst = class_lst.numpy()
                     class_lst *= ((128 / 4) - 1) # values range from 0 to 1. to values range from 0 to 31, stored efficiently as GDT_Byte, saving disk space
@@ -290,86 +297,43 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                     dtype = gdal.GDT_Byte
                     store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
                               None, class_zero)
-                    store_tif(str(output_folder_mlflow / os.path.basename(tiles[i])), class_lst, dtype, geotrans,
-                              geoproj, None, class_zero)
 
                 else:
                     store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
                               geoproj, None, class_zero)
-                    store_tif(str(output_folder_mlflow / os.path.basename(tiles[i])), class_lst.numpy(), dtype,
-                              geotrans, geoproj, None, class_zero)
 
         if validation_vision:
-            cm, class_report, cm_path, class_report_path = plot_valid_predict(output_folder, predict_path, regression, merge, class_zero)
-            # ✅ Log metrics correctly
-            mlflow.log_metric("accuracy", class_report["accuracy"] if "accuracy" in class_report else class_report.get(
-                "weighted avg", {}).get("precision", 0))
+            cm, class_report, cm_path, class_report_path = plot_valid_predict(output_folder, predict_path, regression,
+                                                                              merge, class_zero)
+
+            #  Log metrics
+            mlflow.log_metric("accuracy",
+                              class_report.get("accuracy", class_report.get("weighted avg", {}).get("precision", 0)))
             mlflow.log_metric("precision", class_report["weighted avg"]["precision"])
             mlflow.log_metric("recall", class_report["weighted avg"]["recall"])
             mlflow.log_metric("f1_score", class_report["weighted avg"]["f1-score"])
 
-            # ✅ Create a structured DataFrame for detailed evaluation results
+            #  Save evaluation results as CSV
             eval_results_df = pd.DataFrame({
                 "metric": ["accuracy", "precision", "recall", "f1_score"],
                 "value": [
-                    class_report["accuracy"],
+                    class_report.get("accuracy", 0),
                     class_report["weighted avg"]["precision"],
                     class_report["weighted avg"]["recall"],
                     class_report["weighted avg"]["f1-score"]
                 ]
             })
-            # ✅ Save evaluation results as a CSV for consistency
-            def get_local_path_from_artifact_uri(artifact_uri: str, experiment_id: str) -> Path:
-                """
-                Convert MLflow Linux-style artifact URI to a proper Windows path.
-                Handles artifact paths like: mlruns/<experiment_id>/<run_id>/artifacts
-                """
-                from urllib.parse import urlparse
-                from pathlib import Path
-
-                parsed = urlparse(artifact_uri)
-                linux_str = parsed.path.replace("\\", "/")
-
-                root_prefix = "/home/embedding/Data_Center/qnap3b"
-                if not linux_str.startswith(root_prefix):
-                    raise ValueError(f"❌ Unexpected path format. Got: {linux_str}")
-
-                # Extract relative part after root
-                relative = linux_str[len(root_prefix):].lstrip("/")
-                parts = Path(relative).parts
-
-                try:
-                    # Expected: ['mlruns', experiment_id, run_id, ...]
-                    mlruns_idx = parts.index("mlruns")
-                    exp_id_from_uri = parts[mlruns_idx + 1]
-                    run_id = parts[mlruns_idx + 2]
-                    rest = parts[mlruns_idx + 3:]  # e.g., ['artifacts', 'models']
-
-                    # ✅ Reconstruct path as is
-                    corrected = Path("mlruns") / exp_id_from_uri / run_id / Path(*rest)
-                    return Path("N:/MnD/hub/mlflow") / corrected
-
-                except Exception as e:
-                    raise ValueError(f"❌ Could not parse experiment_id and run_id from: {parts}\n{e}")
-
-            artifact_dir = get_local_path_from_artifact_uri(
-                mlflow.get_artifact_uri(),
-                experiment_id=mlflow.active_run().info.experiment_id
-            )
-            os.makedirs(artifact_dir, exist_ok=True)
-
             eval_results_csv = os.path.join(output_folder, "unet_evaluation_results.csv")
             eval_results_df.to_csv(eval_results_csv, index=False)
-            # ✅ Manually copy prediction output files to artifact folder
-            try:
-                for f in [eval_results_csv, cm_path, class_report_path]:
-                    if os.path.exists(f):
-                        shutil.copy2(f, artifact_dir)
-                        print(f"📁 Copied to artifact folder: {Path(f).name}")
-                    else:
-                        print(f"⚠️ File not found: {f}")
-            except Exception as e:
-                print(f"❌ Error copying prediction outputs to artifact folder: {e}")
+
+            #  Upload all to MLflow (MinIO)
+            for f in [eval_results_csv, cm_path, class_report_path]:
+                if os.path.exists(f):
+                    mlflow.log_artifact(f, artifact_path="predictions")  # optional: "predictions" subfolder
+                    print(f" Logged artifact to MLflow: {Path(f).name}")
+                else:
+                    print(f" File not found: {f}")
+
         if merge:
             # go through the information for all tiles, find upper left most corner and lower right most corner
             # --> these define the extend of the final output
@@ -467,11 +431,6 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
             print(output_file)
 
             store_tif(output_file, merged_raster, dtype,
-                      [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
-                      geoproj_for_merge, nodata, class_zero)
-
-            output_file_mlflow = os.path.join(output_folder_mlflow, output_file_name)
-            store_tif(output_file_mlflow, merged_raster, dtype,
                       [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
                       geoproj_for_merge, nodata, class_zero)
 
