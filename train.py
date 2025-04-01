@@ -1,7 +1,6 @@
 import os
 import warnings
 import numpy as np
-import mlflow
 import pandas as pd
 import matplotlib.pyplot as plt
 import math
@@ -9,6 +8,11 @@ import shutil
 import mlflow.pytorch
 import socket
 import sys
+import shutil
+import tempfile
+import mlflow
+from mlflow.tracking import MlflowClient
+from mlflow.models import infer_signature
 from torch import nn, Tensor
 import json
 from pathlib import Path
@@ -47,23 +51,23 @@ def log_metrics_mlflow(hist_path, monitor):
     - monitor (str): The primary metric to monitor (e.g., "valid_loss", "dice_multi").
     """
     if not hist_path.exists():
-        print(f"⚠️ Warning: Metrics file not found at {hist_path}")
+        print(f" Warning: Metrics file not found at {hist_path}")
         return
 
-    # ✅ Read the training history
+    #  Read the training history
     hist = pd.read_csv(hist_path)
 
-    # ✅ Log metrics for each epoch
+    #  Log metrics for each epoch
     for epoch, row in hist.iterrows():
         mlflow.log_metric("train_loss", row["train_loss"], step=epoch)
         mlflow.log_metric("valid_loss", row["valid_loss"], step=epoch)
         mlflow.log_metric("dice_multi", row["dice_multi"], step=epoch)
 
-        # ✅ Log primary monitoring metric separately (for MLflow visualization)
+        #  Log primary monitoring metric separately (for MLflow visualization)
         if monitor in row:
             mlflow.log_metric(monitor, row[monitor], step=epoch)
 
-    print(f"✅ Metrics logged to MLflow from {hist_path}")
+    print(f" Metrics logged to MLflow from {hist_path}")
 
 
 
@@ -310,11 +314,11 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     plt.legend()
     loss_plot_path = str(hist_path).rsplit('.', 1)[0] + '_loss_plot.png'
     plt.savefig(loss_plot_path, dpi=200)
-    plt.close()  # ✅ Free memory
+    plt.close()  #  Free memory
 
     return learn
 
-#### define train function to be able to use for train_multi and new params approach
+### define train function to be able to use for train_multi and new params approach
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
@@ -323,7 +327,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         pc_name = socket.gethostname()
         #  Check if an MLflow run
         if mlflow.active_run():
-            print(f"⚠️ Using existing MLflow run: {mlflow.active_run().info.run_id}")
+            print(f" Using existing MLflow run: {mlflow.active_run().info.run_id}")
         else:
             mlflow.start_run(run_name=description)
             print(f" Started MLflow run: {mlflow.active_run().info.run_id}")
@@ -371,6 +375,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                                     class_zero=class_zero)
             # Structure the parameters dictionary like the JSON file
             params_dict = {
+                "data_path": str(data_path),
                 "transforms": bool(transforms),
                 "BATCH_SIZE": BATCH_SIZE,
                 "EPOCHS": EPOCHS,
@@ -385,6 +390,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                 "VALID_SCENES": VALID_SCENES,
                 "ARCHITECTURE": str(ARCHITECTURE),
                 "CODES": CODES,
+                "n_transform_imgs": n_transform_imgs,
                 "info": info,
                 "class_zero": class_zero,
                 "patch_size": str(patch_size),
@@ -392,7 +398,8 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                 "data_type": dtype,
                 "number_of_bands": str(number_of_bands),
                 "aug_params_": aug_pipe,
-                "Percentage of augmented images": n_transform_imgs
+                "Percentage of augmented images": n_transform_imgs,
+                "class_zero": class_zero
             }
             mlflow.log_params(params_dict)
 
@@ -409,8 +416,35 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
 
         dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
         dls.vocab = CODES
+        # Convert FastAI datasets to DataFrames and log as input
+        try:
+            train_items = dls.train_ds.items if hasattr(dls.train_ds, "items") else None
+            valid_items = dls.valid_ds.items if hasattr(dls.valid_ds, "items") else None
+
+            if isinstance(train_items, (list, tuple, np.ndarray)):
+                train_df = pd.DataFrame(train_items, columns=["train_paths"])
+                dataset_train = mlflow.data.from_pandas(train_df, name="training_dataset")
+                mlflow.log_input(dataset_train, context="training")
+                print(" Training dataset logged to MLflow.")
+
+            if isinstance(valid_items, (list, tuple, np.ndarray)):
+                valid_df = pd.DataFrame(valid_items, columns=["valid_paths"])
+                dataset_valid = mlflow.data.from_pandas(valid_df, name="validation_dataset")
+                mlflow.log_input(dataset_valid, context="validation")
+                print(" Validation dataset logged to MLflow.")
+
+        except Exception as e:
+            print(f" Failed to log datasets to MLflow: {e}")
 
         inputs, targets = dls.one_batch()
+        # Prepare inputs for logging (move to CPU and detach)
+        sample_input = inputs.cpu().detach()
+        sample_output = targets.cpu().detach()
+
+        # Infer the input/output schema
+        signature = infer_signature(sample_input.numpy(), sample_output.numpy())
+        input_example = sample_input.numpy()
+
         if visualize_data_example:
             inputs_np = inputs.cpu().detach().numpy()
             targets_np = targets.cpu().detach().numpy()
@@ -439,92 +473,48 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
         log_metrics_mlflow(hist_path, monitor)
 
-        def get_local_path_from_artifact_uri(artifact_uri: str, experiment_id: str) -> Path:
-            """
-            Convert MLflow Linux-style artifact URI to a proper Windows path.
-            Handles artifact paths like: mlruns/<experiment_id>/<run_id>/artifacts
-            """
-            from urllib.parse import urlparse
-            from pathlib import Path
+        #  Define relative artifact path inside MLflow run
+        artifact_path = "models"
 
-            parsed = urlparse(artifact_uri)
-            linux_str = parsed.path.replace("\\", "/")
-
-            root_prefix = "/home/embedding/Data_Center/qnap3b"
-            if not linux_str.startswith(root_prefix):
-                raise ValueError(f"❌ Unexpected path format. Got: {linux_str}")
-
-            # Extract relative part after root
-            relative = linux_str[len(root_prefix):].lstrip("/")
-            parts = Path(relative).parts
-
-            try:
-                # Expected: ['mlruns', experiment_id, run_id, ...]
-                mlruns_idx = parts.index("mlruns")
-                exp_id_from_uri = parts[mlruns_idx + 1]
-                run_id = parts[mlruns_idx + 2]
-                rest = parts[mlruns_idx + 3:]  # e.g., ['artifacts', 'models']
-
-                # ✅ Reconstruct path as is
-                corrected = Path("mlruns") / exp_id_from_uri / run_id / Path(*rest)
-                return Path("N:/MnD/hub/mlflow") / corrected
-
-            except Exception as e:
-                raise ValueError(f"❌ Could not parse experiment_id and run_id from: {parts}\n{e}")
-
-        artifact_dir = get_local_path_from_artifact_uri(
-            mlflow.get_artifact_uri(),
-            experiment_id=mlflow.active_run().info.experiment_id
-        )
-
-
-        #  Log Model to MLflow (Conditionally)
         try:
-            artifact_path = "models"  # ✅ Use relative path instead of `mlflow.get_artifact_uri("models")`
+            #  Log the model to MLflow (register or just log)
             if register_model:
-                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path, registered_model_name=description)
-                print(f"✅ Model Registered in MLflow as: {description}")
+                mlflow.pytorch.log_model(
+                    learn.model,
+                    artifact_path=artifact_path,
+                    registered_model_name=description,
+                    signature=signature,
+                    input_example=input_example
+                )
+                print(f" Model Registered in MLflow under name: {description}")
             else:
-                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path)
-                print("✅ Model Logged to MLflow (but NOT registered).")
+                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path, signature=signature, input_example=input_example)
+                print(" Model Logged to MLflow (but NOT registered)")
 
-            # ✅ Export the model locally
+            #  Export model locally
             learn.export(model_path)
-            print(f"✅ Training Completed! Model saved at: {model_path}")
+            print(f" Training Completed! Model saved at: {model_path}")
 
-        except Exception as e:
-            print(f"❌ Error during training: {e}")
-
-            # ✅ Export the model locally
-            learn.export(model_path)
-            print(f"✅ Training Completed! Model saved at: {model_path}")
-
-        except Exception as e:
-            print(f"❌ Error during training: {e}")
-        # ✅ Copy all model files to the MLflow artifact directory manually
-        import shutil
-        try:
-            print(f"📁 Copying model output files to: {artifact_dir}")
-            os.makedirs(artifact_dir, exist_ok=True)
-
+            #  Log all files in new_path as artifacts
             for file in os.listdir(new_path):
                 src_file = os.path.join(new_path, file)
-                dst_file = os.path.join(artifact_dir, file)
                 if os.path.isfile(src_file):
-                    shutil.copy2(src_file, dst_file)
-                    print(f"✅ Copied: {file}")
-        except Exception as copy_error:
-            print(f"❌ Error while copying model files to artifact dir: {copy_error}")
-        # ✅ Log the artifacts to MLflow so they appear in the UI
-        for file in os.listdir(new_path):
-            src_file = os.path.join(new_path, file)
-            if os.path.isfile(src_file):
-                mlflow.log_artifact(src_file)
-                print(f"📦 Logged artifact: {file}")
+                    mlflow.log_artifact(src_file)
+                    print(f" Logged artifact: {file}")
 
+            # 🔍 List logged artifacts for confirmation
+            client = MlflowClient()
+            artifacts = client.list_artifacts(mlflow.active_run().info.run_id, artifact_path)
+            print("🔍 Artifacts in 'models/':", [a.path for a in artifacts])
 
+        except Exception as e:
+            print(f" Error during MLflow model logging: {e}")
+            try:
+                learn.export(model_path)
+                print(f" Model fallback exported to: {model_path}")
+            except Exception as export_error:
+                print(f" Failed to export model fallback: {export_error}")
     finally:
-        # ✅ Ensure the MLflow run is closed properly
         if mlflow.active_run():
-            print(f"✅ Ending MLflow run: {mlflow.active_run().info.run_id}")
+            print(f" Ending MLflow run: {mlflow.active_run().info.run_id}")
             mlflow.end_run()
