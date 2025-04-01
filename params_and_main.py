@@ -18,47 +18,46 @@ from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
 
-import os
-from mlflow.tracking import MlflowClient
-import mlflow
 
-# ✅ Set MLflow request timeout
+# Set request timeout
 os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
 
-# ✅ Define tracking URI to connect to your Linux MLflow server
-MLFLOW_TRACKING_URI = "http://192.168.0.75:8080"
+# Set tracking server URI (MLflow Tracking Server IP)
+MLFLOW_TRACKING_URI = "http://192.168.0.75:5000"
 mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-print(f"📢 MLflow Tracking URI Set to: {mlflow.get_tracking_uri()}")
 
-# ✅ Initialize MLflow client
+
+# Set timeouts and S3 credentials
+os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
+os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://192.168.0.75:9000"
+os.environ["MLFLOW_S3_IGNORE_TLS"] = "true"
+os.environ["AWS_ACCESS_KEY_ID"] = "x5WW..."       # git the full number From Wiki Page: https://wiki.lup-umwelt.de/books/workspace/page/20250328-mlflow
+os.environ["AWS_SECRET_ACCESS_KEY"] = "ehhh..."
+
+# Connect to MLflow tracking server
+mlflow.set_tracking_uri("http://192.168.0.75:5000")
+
+
+print(f" MLflow Tracking URI Set to: {mlflow.get_tracking_uri()}")
+
+# Initialize MLflow client
 client = MlflowClient()
 
-# ✅ Define experiment name and correct artifact location
-experiment_name = "Beschirmung_Model" # please change it according to your project name
-artifact_location = "file:///home/embedding/Data_Center/qnap3b/MnD/hub/mlflow/mlruns" # Keep it for the experiment path
-
-# ✅ Create or fix experiment if artifact location is incorrect
+# Create or get experiment
+experiment_name = "Beschirmung_Model"
 experiment = client.get_experiment_by_name(experiment_name)
 
-if experiment is None or not experiment.artifact_location.startswith(artifact_location):
-    if experiment is not None:
-        print(f" Experiment found, but artifact location is incorrect:")
-        print(f"   Expected: {artifact_location}")
-        print(f"   Found:    {experiment.artifact_location}")
-        print(" Deleting and recreating experiment with correct artifact location...")
-        client.delete_experiment(experiment.experiment_id)
-
+if experiment is None:
     experiment_id = client.create_experiment(
         name=experiment_name,
-        artifact_location=artifact_location
+        tags={"team": "AI", "project": "unet_Beschirmung_Model"}
     )
-    experiment = client.get_experiment(experiment_id)
-    print(f" New Experiment Created: {experiment.name} (ID: {experiment.experiment_id})")
+    print(f" New Experiment Created: {experiment_name} (ID: {experiment_id})")
 else:
     experiment_id = experiment.experiment_id
-    print(f" Using Existing Experiment: {experiment.name} (ID: {experiment.experiment_id})")
+    print(f" Using Existing Experiment: {experiment_name} (ID: {experiment_id})")
 
-# ✅ Set experiment for this run context
+# Set the experiment context for the next runs
 mlflow.set_experiment(experiment_name)
 
 
