@@ -457,18 +457,18 @@ def get_image_metadata(path):
 
     sample_image = image_files[0]
 
-    # ✅ Open raster using GDAL
+    #  Open raster using GDAL
     img_ds = gdal.Open(sample_image, gdal.GA_ReadOnly)
 
-    # ✅ Extract patch size (assuming square images)
+    #  Extract patch size (assuming square images)
     patch_size = img_ds.RasterXSize  # Assuming width = height
 
-    # ✅ Extract spatial resolution
+    #  Extract spatial resolution
     geotransform = img_ds.GetGeoTransform()
     resolution = [abs(geotransform[1]), abs(geotransform[5])]  # Pixel size in X and Y
 
-    # ✅ Get the number of bands in the dataset
+    #  Get the number of bands in the dataset
     number_of_bands = img_ds.RasterCount
 
-    # ✅ Return structured metadata dictionary
+    #  Return structured metadata dictionary
     return patch_size, resolution, number_of_bands
