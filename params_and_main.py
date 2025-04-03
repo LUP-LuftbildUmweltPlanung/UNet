@@ -17,48 +17,35 @@ from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Satura
 from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
+from mlflow_config import *
 
-
-# Set request timeout
+# set Mlflow request
 os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
 
-# Set tracking server URI (MLflow Tracking Server IP)
-MLFLOW_TRACKING_URI = "http://192.168.0.75:5000"
-mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
-
-
-# Set timeouts and S3 credentials
-os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
-os.environ["MLFLOW_S3_ENDPOINT_URL"] = "http://192.168.0.75:9000"
-os.environ["MLFLOW_S3_IGNORE_TLS"] = "true"
-os.environ["AWS_ACCESS_KEY_ID"] = "x5WW..."       # git the full number From Wiki Page: https://wiki.lup-umwelt.de/books/workspace/page/20250328-mlflow
-os.environ["AWS_SECRET_ACCESS_KEY"] = "ehhh..."
-
-# Connect to MLflow tracking server
-mlflow.set_tracking_uri("http://192.168.0.75:5000")
-
-
-print(f" MLflow Tracking URI Set to: {mlflow.get_tracking_uri()}")
-
-# Initialize MLflow client
+# Initialize Mlflow Client
 client = MlflowClient()
 
-# Create or get experiment
+# Define Experiment name
 experiment_name = "Beschirmung_Model"
+
+# check if experiment Exists
 experiment = client.get_experiment_by_name(experiment_name)
 
+# create new exp if not found
 if experiment is None:
-    experiment_id = client.create_experiment(
-        name=experiment_name,
-        tags={"team": "AI", "project": "unet_Beschirmung_Model"}
-    )
-    print(f" New Experiment Created: {experiment_name} (ID: {experiment_id})")
+    print(f" Experiment '{experiment_name}' not found! Creating a new one...")
+    experiment_id = client.create_experiment(name=experiment_name)
+    print(f" Created new experiment: {experiment_name} (ID: {experiment_id})")
 else:
     experiment_id = experiment.experiment_id
-    print(f" Using Existing Experiment: {experiment_name} (ID: {experiment_id})")
+    print(f" Using existing experiment: {experiment_name} (ID: {experiment_id})")
 
-# Set the experiment context for the next runs
+# set the Active Experiment
 mlflow.set_experiment(experiment_name)
+
+# confirm Artifact Location:
+experiment = client.get_experiment(experiment_id)
+print(f" Experiment '{experiment_name}' Artifact Location: {experiment.artifact_location}")
 
 
 
