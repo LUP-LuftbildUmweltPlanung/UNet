@@ -60,19 +60,19 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
         raise ValueError("This function is just for classification problems")
 
     # Create a new folder to save the figures
-    valid_path = os.path.join(output_folder, "Valid_figures")
+    valid_path = output_folder / "Valid_figures"
     os.makedirs(valid_path, exist_ok=True)
 
     # Replace the last part of the truth_label path
-    truth_label = predict_path.replace('img_tiles', 'mask_tiles')
+    truth_label = Path(str(predict_path).replace('img_tiles', 'mask_tiles'))
 
     y_true = []
     y_pred = []
 
     for file_name in os.listdir(output_folder):
         if file_name.endswith('.tif'):
-            pred_path = os.path.join(output_folder, file_name)
-            true_path = os.path.join(truth_label, file_name)
+            pred_path = output_folder / file_name
+            true_path = truth_label / file_name
 
             with rasterio.open(pred_path) as src_pred:
                 pred_data = src_pred.read(1).astype(np.int64)  # Assuming single band for class labels
@@ -131,7 +131,7 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.title('Confusion Matrix')
-    confusion_matrix_path = os.path.join(valid_path, "Confusion_Matrix.png")
+    confusion_matrix_path = valid_path / "Confusion_Matrix.png"
     plt.savefig(confusion_matrix_path)
     plt.show()
 
@@ -175,7 +175,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
 
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
-    tiles = glob.glob(str(path) + "\\*.tif")
+    tiles = glob.glob(str(path) + "/*.tif")
 
     # create necessary variables to track merge
     if merge:
@@ -247,10 +247,10 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
                 class_lst *= ((128 / 4) - 1)
                 class_lst = np.around(class_lst).astype(np.int8)
                 dtype = gdal.GDT_Byte
-                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
+                store_tif(output_folder / os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
                           None, class_zero)
             else:
-                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
+                store_tif(output_folder / os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
                           geoproj, None, class_zero)
     if validation_vision:
         plot_valid_predict(output_folder, predict_path, regression, merge, class_zero)
@@ -347,7 +347,7 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         # Define the parameters for the name of output:
         output_file_name_parts = [AOI, year, model_name, "prediction"]
         output_file_name = "_".join(filter(None, output_file_name_parts)) + ".tif"
-        output_file = os.path.join(output_folder, output_file_name)
+        output_file = output_folder / output_file_name
         print(output_file)
 
         store_tif(output_file, merged_raster, dtype,

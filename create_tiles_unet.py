@@ -59,7 +59,7 @@ def compute_windows(numpy_image, patch_size, patch_overlap):
 def get_files(directory, file_type):
     """Returns a list of all files of the given type in the given directory."""
     directory = Path(directory)
-    ori_dir = os.getcwd()
+    ori_dir = Path(os.getcwd())
     os.chdir(directory)
     files = [directory / file for file in glob('*.' + file_type)]
     os.chdir(ori_dir)
@@ -80,18 +80,18 @@ def create_train_test_split(path, split=None):
         split = [0.7, 0.2, 0.1]
     if np.round(np.sum(split), decimals=3) != 1.0:
         split = [0.7, 0.2, 0.1]
-        warnings.warn('Train/Vali/Test-Split percentage does not sum to 1, reseting to 70%/20%/10%.')
+        warnings.warn('Train/Vali/Test-Split percentage does not sum to 1, resetting to 70%/20%/10%.')
 
     source = Path(path)
-    sources = [p.path for p in os.scandir(str(source)) if p.is_dir()]
+    sources = [Path(p.path) for p in os.scandir(str(source)) if p.is_dir()]
 
-    Path(str(source) + r'\trai\mask_tiles').mkdir(parents=True, exist_ok=True)
-    Path(str(source) + r'\trai\img_tiles').mkdir(parents=True, exist_ok=True)
-    Path(str(source) + r'\vali\mask_tiles').mkdir(parents=True, exist_ok=True)
-    Path(str(source) + r'\vali\img_tiles').mkdir(parents=True, exist_ok=True)
+    Path(source / 'trai/mask_tiles').mkdir(parents=True, exist_ok=True)
+    Path(source / 'trai/img_tiles').mkdir(parents=True, exist_ok=True)
+    Path(source / 'vali/mask_tiles').mkdir(parents=True, exist_ok=True)
+    Path(source / 'vali/img_tiles').mkdir(parents=True, exist_ok=True)
     if split[-1] != 0 and len(split) == 3:
-        Path(str(source) + r'\test\mask_tiles').mkdir(parents=True, exist_ok=True)
-        Path(str(source) + r'\test\img_tiles').mkdir(parents=True, exist_ok=True)
+        Path(source / 'test/mask_tiles').mkdir(parents=True, exist_ok=True)
+        Path(source / 'test/img_tiles').mkdir(parents=True, exist_ok=True)
 
     s = sources[0]
 
@@ -104,15 +104,15 @@ def create_train_test_split(path, split=None):
         vali_files = files[int(len(files) * split[0]):int(len(files) * np.sum(split[:2]))]
         test_files = files[int(len(files) * np.sum(split[:2])):]
 
-    storage = [str(file).rsplit('\\', 1)[-1] for file in files]
+    storage = [file.name for file in files]
 
-    train_storage = [sources[1] + '\\' + mask_file for mask_file in storage[:int(len(files) * split[0])]]
+    train_storage = [sources[1] / mask_file for mask_file in storage[:int(len(files) * split[0])]]
     if split[-1] == 0 or len(split) == 2:
-        vali_storage = [sources[1] + '\\' + mask_file for mask_file in storage[int(len(files) * split[0]):]]
+        vali_storage = [sources[1] / mask_file for mask_file in storage[int(len(files) * split[0]):]]
     else:
-        vali_storage = [sources[1] + '\\' + mask_file for mask_file in
+        vali_storage = [sources[1] /mask_file for mask_file in
                         storage[int(len(files) * split[0]):int(len(files) * np.sum(split[:2]))]]
-        test_storage = [sources[1] + '\\' + mask_file for mask_file in
+        test_storage = [sources[1] / mask_file for mask_file in
                         storage[int(len(files) * np.sum(split[:2])):]]
 
     train_files += train_storage
@@ -121,13 +121,13 @@ def create_train_test_split(path, split=None):
         test_files += test_storage
 
     for f in train_files:
-        if str(f).rsplit('\\', 1)[0].endswith('img_tiles'):
-            dest = Path(str(source) + r'\trai\img_tiles')
+        if f.parent.name == 'img_tiles':
+            dest = Path(source / 'trai/img_tiles')
         else:
-            dest = Path(str(source) + r'\trai\mask_tiles')
+            dest = Path(source / 'trai/mask_tiles')
 
         try:
-            os.rename(f, dest / (str(f).rsplit('\\', 1)[-1]))
+            f.rename(dest / f.name)
 
         # If source and destination are same
         except shutil.SameFileError:
@@ -138,13 +138,13 @@ def create_train_test_split(path, split=None):
             print("Permission denied.")
 
     for f in vali_files:
-        if str(f).rsplit('\\', 1)[0].endswith('img_tiles'):
-            dest = Path(str(source) + r'\vali\img_tiles')
+        if f.parent.name == 'img_tiles':
+            dest = Path(source / 'vali/img_tiles')
         else:
-            dest = Path(str(source) + r'\vali\mask_tiles')
+            dest = Path(source / 'vali/mask_tiles')
 
         try:
-            os.rename(f, dest / (str(f).rsplit('\\', 1)[-1]))
+            f.rename(dest / f.name)
 
         # If source and destination are same
         except shutil.SameFileError:
@@ -156,13 +156,13 @@ def create_train_test_split(path, split=None):
 
     if split[-1] != 0 and len(split) == 3:
         for f in test_files:
-            if str(f).rsplit('\\', 1)[0].endswith('img_tiles'):
-                dest = Path(str(source) + r'\test\img_tiles')
+            if f.parent.name == 'img_tiles':
+                dest = Path(source / 'test/img_tiles')
             else:
-                dest = Path(str(source) + r'\test\mask_tiles')
+                dest = Path(source / 'test/mask_tiles')
 
             try:
-                os.rename(f, dest / (str(f).rsplit('\\', 1)[-1]))
+                f.rename(dest / f.name)
 
             # If source and destination are same
             except shutil.SameFileError:
@@ -172,8 +172,8 @@ def create_train_test_split(path, split=None):
             except PermissionError:
                 print("Permission denied.")
 
-    delete_folder(Path(str(source) + r'\img_tiles'))
-    delete_folder(Path(str(source) + r'\mask_tiles'))
+    delete_folder(Path(source / 'img_tiles'))
+    delete_folder(Path(source / 'mask_tiles'))
 
 
 def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geotrans, geoproj, raster_dtype,
@@ -199,23 +199,23 @@ def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geo
     include_mask = crop_mask is not None
 
     # create dir if needed
-    if include_mask and not os.path.exists(base_dir + "\\mask_tiles"):
-        os.makedirs(base_dir + "\\mask_tiles")
-    if not os.path.exists(base_dir + "\\img_tiles"):
-        os.makedirs(base_dir + "\\img_tiles")
+    if include_mask and not os.path.exists(base_dir / "mask_tiles"):
+        os.makedirs(base_dir / "mask_tiles")
+    if not os.path.exists(base_dir / "img_tiles"):
+        os.makedirs(base_dir / "img_tiles")
     image_basename = os.path.splitext(image_name)[0]
 
     driver = gdal.GetDriverByName('GTiff')
     if raster_dtype.endswith("int16"):
-        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir + "\\img_tiles", image_basename, index), crop.shape[0],
+        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir / "img_tiles", image_basename, index), crop.shape[0],
                                crop.shape[1], bands_img, gdal.GDT_UInt16)
         raster_dtype_factor = 65536
     elif raster_dtype.endswith("int8"):
-        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir + "\\img_tiles", image_basename, index), crop.shape[0],
+        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir / "img_tiles", image_basename, index), crop.shape[0],
                                crop.shape[1], bands_img, gdal.GDT_Byte)
         raster_dtype_factor = 256
     elif raster_dtype.endswith("float32"):
-        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir + "\\img_tiles", image_basename, index), crop.shape[0],
+        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir / "img_tiles", image_basename, index), crop.shape[0],
                                crop.shape[1], bands_img, gdal.GDT_Float32)
 
     else:
@@ -234,10 +234,10 @@ def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geo
     if include_mask:
         driver2 = gdal.GetDriverByName('GTiff')
         if "float" in mask_dtype:
-            out_ds2 = driver2.Create("{}/{}_{}.tif".format(base_dir + "\\mask_tiles", image_basename, index),
+            out_ds2 = driver2.Create("{}/{}_{}.tif".format(base_dir / "mask_tiles", image_basename, index),
                                      crop_mask.shape[0], crop_mask.shape[1], 1, gdal.GDT_Float32)
         else:
-            out_ds2 = driver2.Create("{}/{}_{}.tif".format(base_dir + "\\mask_tiles", image_basename, index),
+            out_ds2 = driver2.Create("{}/{}_{}.tif".format(base_dir / "mask_tiles", image_basename, index),
                                      crop_mask.shape[0], crop_mask.shape[1], 1, gdal.GDT_Byte)
         out_ds2.SetGeoTransform(
             [xmin * geotrans[1] + geotrans[0], geotrans[1], 0, geotrans[3] - ymax * geotrans[1], 0, geotrans[5], ])
@@ -286,11 +286,11 @@ def split_raster(path_to_raster=None,
     # setnodata 0
     nodata = rasterio.open(path_to_raster).nodata
 
-    out_l, out_w, out_o1, out_t, out_o2, out_h = gdal.Open(path_to_raster).GetGeoTransform()
+    out_l, out_w, out_o1, out_t, out_o2, out_h = gdal.Open(str(path_to_raster)).GetGeoTransform()
 
     if include_mask:
-        img_l, img_w, _, img_t, _, img_h = gdal.Open(path_to_raster).GetGeoTransform()
-        msk_l, msk_w, _, msk_t, _, msk_h = gdal.Open(path_to_mask).GetGeoTransform()
+        img_l, img_w, _, img_t, _, img_h = gdal.Open(str(path_to_raster)).GetGeoTransform()
+        msk_l, msk_w, _, msk_t, _, msk_h = gdal.Open(str(path_to_mask)).GetGeoTransform()
         img_w = np.around(img_w, decimals=3)
         img_h = np.around(img_h, decimals=3)
         msk_w = np.around(msk_w, decimals=3)
@@ -389,7 +389,7 @@ def split_raster(path_to_raster=None,
     numpy_image2 = np.moveaxis(numpy_image, 0, 2)
 
     geotrans = (out_l, out_w, out_o1, out_t, out_o2, out_h)
-    geoproj = gdal.Open(path_to_raster).GetProjection()
+    geoproj = gdal.Open(str(path_to_raster)).GetProjection()
 
     # Check if patch size is greater than image size
     height = numpy_image2.shape[0]

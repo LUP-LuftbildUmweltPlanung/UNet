@@ -3,6 +3,7 @@ from predict import save_predictions
 from train import train_func
 from utils import check_and_fill
 import time
+from pathlib import Path
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -25,15 +26,15 @@ Predict = False
 
 # if using without mask, set mask_path = None
 image_path = [
-            r'PATH',
+            Path('PATH'),
               ]
 
 mask_path = [
-            r'PATH',
+            Path('PATH'),
              ]
 
 base_dir = [
-            r'PATH',
+           Path('PATH'),
             ]
 
 
@@ -49,16 +50,17 @@ max_empty = 0.9  # Maximum no data area in created image crops
 # if using on created tiles, set data_path = base_dir
 
 model_path = [
-                r"PATH",
+                Path("PATH"),
               ]
 
 data_path = [
-                r"PATH",
+                Path("PATH"),
              ]
 
 existing_model = [
                 None,
-                  ]#r"PATH" or None
+                  ]#Path("PATH") or None
+
 BATCH_SIZE = [4]# 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
 EPOCHS = [2]
 LEARNING_RATE = [0.00001]
@@ -94,11 +96,11 @@ transforms = [None]
 #################### PREDICTION ########################
 ########################################################
 predict_path = [
-    r"PATH",
+    Path("PATH"),
             ]
 
 predict_model = [
-    r"PATH"
+    Path("PATH")
             ]
 merge = [True]
 regression = False
@@ -205,6 +207,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
