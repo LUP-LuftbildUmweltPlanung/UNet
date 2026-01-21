@@ -38,6 +38,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 ### Executing program
 
 * set parameters and run in params_and_main.py
+*  `Note` : to run the script with Mlflow please ask me for **mlflow_config** file
 
 ## Help/Known Issues
 

@@ -6,6 +6,9 @@ from utils import backslash_to_forwardslash
 
 import os 
 import time
+import mlflow
+import mlflow.pytorch
+from mlflow.tracking import MlflowClient
 import torch
 import pathlib
 import warnings
@@ -16,6 +19,37 @@ from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Satura
 from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
+from mlflow_config import *
+
+# set Mlflow request
+os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
+
+# Initialize Mlflow Client
+client = MlflowClient()
+
+# Define Experiment name
+experiment_name = "Beschirmung_Model"
+
+# check if experiment Exists
+experiment = client.get_experiment_by_name(experiment_name)
+
+# create new exp if not found
+if experiment is None:
+    print(f" Experiment '{experiment_name}' not found! Creating a new one...")
+    experiment_id = client.create_experiment(name=experiment_name)
+    print(f" Created new experiment: {experiment_name} (ID: {experiment_id})")
+else:
+    experiment_id = experiment.experiment_id
+    print(f" Using existing experiment: {experiment_name} (ID: {experiment_id})")
+
+# set the Active Experiment
+mlflow.set_experiment(experiment_name)
+
+# confirm Artifact Location:
+experiment = client.get_experiment(experiment_id)
+print(f" Experiment '{experiment_name}' Artifact Location: {experiment.artifact_location}")
+
+
 
 
 # PARAMETERS
@@ -28,7 +62,6 @@ Predict = False
 ######################################################
 
 # if using without mask, set mask_path = None
-
 image_path = r"PATH"
 mask_path = r"PATH"
 base_dir = r"PATH"
@@ -36,9 +69,7 @@ base_dir = r"PATH"
 #for prediction patch_overlap = 0.2 to prevent edge artifacts and split = [1] to predict full image
 patch_size = 400
 patch_overlap = 0
-
 split = [0.8, 0.2]
-
 
 
 
@@ -63,7 +94,7 @@ CODES = ['NO_Data', 'Background', 'Beschirmung']
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 #CLASS_WEIGHTS = "weighted" #"weighted" #[0.01, 0.3, 0.69]
 #CLASS_WEIGHTS =[19, 4, 6, 35, 3, 38, 85, 5, 52, 123, 54]
-
+register_model=False
 ########################################################
 #################### PREDICTION ########################
 ########################################################
@@ -108,12 +139,12 @@ n_transform_imgs = 1 # Percentage of augmented images [0-1]. Decimals always be 
 aug_pipe = A.Compose([
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.
-#    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
-#        brightness_limit=(-0.1, 0.1),
-#        contrast_limit=(-0.1, 0.1),
-#        p=0.5
- #   ),
-#    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
+    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
+        brightness_limit=(-0.1, 0.1),
+        contrast_limit=(-0.1, 0.1),
+        p=0.5
+    ),
+    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
 
 ])  # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
 
@@ -178,8 +209,9 @@ def main():
         train_func(data_path, existing_model, model_path, description, BATCH_SIZE, visualize_data_example,
                    enable_regression, CLASS_WEIGHTS,
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
-                   VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-                   class_zero)
+                   VALID_SCENES,
+                   CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
+                   class_zero, register_model)
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI,
