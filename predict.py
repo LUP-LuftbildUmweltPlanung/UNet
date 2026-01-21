@@ -3,6 +3,9 @@ import os
 import warnings
 import numpy as np
 import torch
+import socket
+import mlflow
+import mlflow.pytorch
 import time
 from tqdm import tqdm
 from pathlib import Path
@@ -13,6 +16,31 @@ import rasterio
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
+
+
+
+def load_fastai_model_flexible(model_uri):
+    """
+    Load a FastAI model from a local path, MLflow run URI, or artifact URI.
+
+    Parameters:
+        model_uri (str):
+            - Local path: "/path/to/model.pkl"
+            - MLflow run artifact: "mlflow-artifacts:/<exp_id>/<run_id>/artifacts/<model.pkl>"
+            - Run ID style: "runs:/<run_id>/Beschirmung.pkl"
+
+    Returns:
+        Learner object loaded via fastai.
+    """
+    if model_uri.startswith("mlflow-artifacts:/") or model_uri.startswith("runs:/"):
+        print(f" Downloading model artifact from MLflow: {model_uri}")
+        local_path = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
+        return load_learner(local_path)
+    elif Path(model_uri).exists():
+        print(f" Loading model from local path: {model_uri}")
+        return load_learner(model_uri)
+    else:
+        raise ValueError(f" Unsupported or non-existent model path: {model_uri}")
 
 
 # save the predicted tiles
@@ -60,19 +88,19 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
         raise ValueError("This function is just for classification problems")
 
     # Create a new folder to save the figures
-    valid_path = os.path.join(output_folder, "Valid_figures")
+    valid_path = output_folder / "Valid_figures"
     os.makedirs(valid_path, exist_ok=True)
 
     # Replace the last part of the truth_label path
-    truth_label = predict_path.replace('img_tiles', 'mask_tiles')
+    truth_label = Path(str(predict_path).replace('img_tiles', 'mask_tiles'))
 
     y_true = []
     y_pred = []
 
     for file_name in os.listdir(output_folder):
         if file_name.endswith('.tif'):
-            pred_path = os.path.join(output_folder, file_name)
-            true_path = os.path.join(truth_label, file_name)
+            pred_path = output_folder / file_name
+            true_path = truth_label / file_name
 
             with rasterio.open(pred_path) as src_pred:
                 pred_data = src_pred.read(1).astype(np.int64)  # Assuming single band for class labels
@@ -82,6 +110,7 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
 
             # If class_zero is true, shift class values accordingly
             if class_zero:
+                # true_class = true_class[true_class != 0] - 1
                 true_data[true_data != 0] -= 1
 
             y_true.extend(true_data.flatten())
@@ -92,51 +121,43 @@ def plot_valid_predict(output_folder, predict_path, regression=False, merge=Fals
 
     # Compute the confusion matrix
     cm = confusion_matrix(y_true, y_pred)
-    class_report = classification_report(y_true, y_pred, zero_division=1)
+    class_report = classification_report(y_true, y_pred, output_dict=True, zero_division=1)
+    #  Extract only class names (exclude "accuracy", "macro avg", etc.)
+    class_labels = [str(label) for label in class_report.keys() if
+                    label not in ["accuracy", "macro avg", "weighted avg"]]
 
-    # Plot the classification report and get class names
-    report_data = []
-    class_names = []
-    lines = class_report.split('\n')
-    for line in lines[2:-3]:  # Extract just the values
-        row_data = line.split()
-        if len(row_data) < 5:  # Check if the row_data has the expected number of elements
-            continue
-        class_names.append(row_data[0])
-        row = {
-            'class': row_data[0],
-            'precision': float(row_data[1]),
-            'recall': float(row_data[2]),
-            'f1_score': float(row_data[3]),
-            'support': int(float(row_data[4]))
-        }
-        report_data.append(row)
+    # Convert the classification report dictionary into a DataFrame for visualization
+    dataframe = pd.DataFrame(class_report).transpose()
 
-    dataframe = pd.DataFrame.from_dict(report_data)
-
-    plt.figure(figsize=(10, 7))
-    sns.heatmap(dataframe.set_index('class'), annot=True, fmt='.2f', cmap='crest')
-    plt.title('Classification Report')
+    #  Save classification report as an image
     classification_report_path = os.path.join(valid_path, "classification_report.png")
-    plt.savefig(classification_report_path)
-    plt.show()
 
-    # Plot the confusion matrix with class names
+    # Keep only class label rows (like 0, 1, 2...) and drop "support" column
+    filtered_df = dataframe.loc[dataframe.index.str.isdigit(), ['precision', 'recall', 'f1-score']]
+
+    #  Plot and save the classification report heatmap
     plt.figure(figsize=(10, 7))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='crest', xticklabels=class_names, yticklabels=class_names)
+    sns.heatmap(filtered_df.astype(float), annot=True, fmt='.2f', cmap='crest')
+    plt.title('Classification Report')
+    plt.savefig(classification_report_path)
+    plt.close()
+
+    #  Plot and save the confusion matrix heatmap
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='crest', xticklabels=class_labels, yticklabels=class_labels)
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.title('Confusion Matrix')
-    confusion_matrix_path = os.path.join(valid_path, "Confusion_Matrix.png")
+    confusion_matrix_path = valid_path / "Confusion_Matrix.png"
     plt.savefig(confusion_matrix_path)
-    plt.show()
+    plt.close()
 
     print("Confusion Matrix:")
     print(cm)
-    print("\nClassification Report:")
+    print("\nClassification Report (as dictionary):")
     print(class_report)
 
-    return cm, class_report
+    return cm, class_report, confusion_matrix_path, classification_report_path
 
 
 def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None,
@@ -153,201 +174,264 @@ def save_predictions(predict_model, predict_path, regression, merge=False, all_c
         all_classes :       If the prediction should contain all prediction values for all classes (default=False)
         specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
+    #  Get PC name dynamically
+    pc_name = socket.gethostname()
+    with mlflow.start_run(run_name=f"Prediction_{os.path.basename(predict_model).split('.')[0]}"):
+        #  Log parameters
+        mlflow.log_param("predict_model", predict_model)
+        mlflow.log_param("predict_path", predict_path)
+        mlflow.log_param("regression", regression)
+        mlflow.log_param("merge", merge)
+        mlflow.log_param("all_classes", all_classes)
+        mlflow.log_param("specific_class", specific_class)
+        mlflow.log_param("large_file", large_file)
+        mlflow.log_param("AOI", AOI)
+        mlflow.log_param("year", year)
+        mlflow.log_param("validation_vision", validation_vision)
+        mlflow.log_param("class_zero", class_zero)
 
-    learn = load_learner(Path(predict_model))
+        # Set the MLflow Source Name with PC name
+        mlflow.set_tag("mlflow.source.name", f"{pc_name}_params_and_main.py")
+        # Log PC name as a parameter in MLflow
+        mlflow.log_param("pc_name", pc_name)
 
-    path = Path(predict_path)
+        # Mlflow the path of the valid data
+        # Create a minimal DataFrame with just the path
+        df = pd.DataFrame([], columns=[])  # empty dataset
 
-    # Define the path as the current directory
-    # current_directory = Path(os.getcwd())
-    # Define the 'models' directory
-    # output_folder_ = current_directory / 'Prediction'
-    if not merge:
-        output_folder = path.parent / ('predicted_tiles_' + Path(predict_model).stem)
-    else:
-        output_folder = path.parent
+        # Log it using from_pandas with the folder path as the source
+        dataset = mlflow.data.from_pandas(df, source=predict_path, name="prediction_tiles")
+        mlflow.log_input(dataset, context="inference")
 
-    model_name = os.path.basename(predict_model).split('.')[0]
+        print(f" Logged dataset folder path as input: {predict_path}")
 
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-    tiles = glob.glob(str(path) + "\\*.tif")
+        print(f" Logged dataset source path: {predict_path}")
 
-    # create necessary variables to track merge
-    if merge:
-        geoproj_for_merge = None
-        predictions_for_merge = []
-        predictions_for_merge_size = 0
-        geotrans_for_merge = []
+       # learn = load_learner(Path(predict_model))
+        learn = load_fastai_model_flexible(predict_model)
 
-    t = time.localtime()
-    current_time = time.strftime("%H:%M:%S", t)
-    print(f'Started at: {current_time}')
-    # for i in range(len(tiles)):
-    for i in tqdm(range(len(tiles)), desc='Processing tiles'):
-        # print(f'Current progress: {i}/{len(tiles)}')
-        tile_preds = learn.predict(Path(tiles[i]), with_input=False)
-        class_lst = []
+        path = Path(predict_path)
 
-        if regression:
-            for cl in range(len(tile_preds[1])):
-                class_lst.append(tile_preds[1][cl])
+        if not merge:
+            output_folder = path.parent / ('predicted_tiles_' + Path(predict_model).stem)
         else:
-            for cl in range(len(tile_preds[2])):
-                class_lst.append(tile_preds[2][cl])
+            output_folder = path.parent
 
-        class_lst = torch.stack(class_lst)
+        model_name = os.path.basename(predict_model).split('.')[0]
 
-        # go through all predictions and store their physical coordinates and check, that all have the same projection
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        tiles = glob.glob(str(path) + "/*.tif")
+
+        # create necessary variables to track merge
         if merge:
-            img_ds_proj = gdal.Open(str(tiles[i]))
+            geoproj_for_merge = None
+            predictions_for_merge = []
+            predictions_for_merge_size = 0
+            geotrans_for_merge = []
 
-            if geoproj_for_merge is None:
-                geoproj_for_merge = img_ds_proj.GetProjection()
-            elif geoproj_for_merge is not None and geoproj_for_merge != img_ds_proj.GetProjection():
-                warnings.warn("Geoprojection is not the same for all prediction tiles.")
+        t = time.localtime()
+        current_time = time.strftime("%H:%M:%S", t)
+        print(f'Started at: {current_time}')
 
-            ulx, xres, xskew, uly, yskew, yres = img_ds_proj.GetGeoTransform()
-            class_lst = class_lst.numpy()
-
-            if large_file and np.max(class_lst) <= 1:
-                class_lst *= ((128 / 4) - 1)
-                class_lst = np.around(class_lst).astype(np.int8)
-            predictions_for_merge.append(class_lst)
-            predictions_for_merge_size += class_lst.nbytes
-            geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
+        for i in tqdm(range(len(tiles)), desc='Processing tiles'):
+            # print(f'Current progress: {i}/{len(tiles)}')
+            tile_preds = learn.predict(Path(tiles[i]), with_input=False)
 
 
-        else:
+            class_lst = []
+
             if regression:
-                pass
-            elif all_classes:
-                pass
-            elif specific_class is None:
-                # for decoded argmax value
-                class_lst = class_lst.argmax(axis=0)
+                for cl in range(len(tile_preds[1])):
+                    class_lst.append(tile_preds[1][cl])
             else:
-                # for probabilities of specific class [1] -> klasse 1
-                class_lst = class_lst[specific_class]
-            img_ds_proj = gdal.Open(str(tiles[i]))
-            geotrans = img_ds_proj.GetGeoTransform()
-            geoproj = img_ds_proj.GetProjection()
+                for cl in range(len(tile_preds[2])):
+                    class_lst.append(tile_preds[2][cl])
 
-            if "float" in str(class_lst.dtype):
+            class_lst = torch.stack(class_lst)
+
+            # go through all predictions and store their physical coordinates and check, that all have the same projection
+            if merge:
+                img_ds_proj = gdal.Open(str(tiles[i]))
+
+                if geoproj_for_merge is None:
+                    geoproj_for_merge = img_ds_proj.GetProjection()
+                elif geoproj_for_merge is not None and geoproj_for_merge != img_ds_proj.GetProjection():
+                    warnings.warn("Geoprojection is not the same for all prediction tiles.")
+
+                ulx, xres, xskew, uly, yskew, yres = img_ds_proj.GetGeoTransform()
+                class_lst = class_lst.numpy()
+
+                if large_file and np.max(class_lst) <= 1:
+                    class_lst *= ((128 / 4) - 1)
+                    class_lst = np.around(class_lst).astype(np.int8)
+                predictions_for_merge.append(class_lst)
+                predictions_for_merge_size += class_lst.nbytes
+                geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
+
+
+            else:
+                if regression:
+                    pass
+                elif all_classes:
+                    pass
+                elif specific_class is None:
+                    # for decoded argmax value
+                    class_lst = class_lst.argmax(axis=0)
+                else:
+                    # for probabilities of specific class [1] -> klasse 1
+                    class_lst = class_lst[specific_class]
+                img_ds_proj = gdal.Open(str(tiles[i]))
+                geotrans = img_ds_proj.GetGeoTransform()
+                geoproj = img_ds_proj.GetProjection()
+
+                if "float" in str(class_lst.dtype):
+                    dtype = gdal.GDT_Float32
+                else:
+                    dtype = gdal.GDT_Byte
+
+                if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
+                    class_lst = class_lst.numpy()
+                    class_lst *= ((128 / 4) - 1) # values range from 0 to 1. to values range from 0 to 31, stored efficiently as GDT_Byte, saving disk space
+                    class_lst = np.around(class_lst).astype(np.int8)
+                    dtype = gdal.GDT_Byte
+                    store_tif(output_folder / os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
+                              None, class_zero)
+
+                else:
+                    store_tif(output_folder / os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
+                              geoproj, None, class_zero)
+
+        if validation_vision:
+            cm, class_report, cm_path, class_report_path = plot_valid_predict(output_folder, predict_path, regression,
+                                                                              merge, class_zero)
+
+            #  Log metrics
+            mlflow.log_metric("accuracy",
+                              class_report.get("accuracy", class_report.get("weighted avg", {}).get("precision", 0)))
+            mlflow.log_metric("precision", class_report["weighted avg"]["precision"])
+            mlflow.log_metric("recall", class_report["weighted avg"]["recall"])
+            mlflow.log_metric("f1_score", class_report["weighted avg"]["f1-score"])
+
+            #  Save evaluation results as CSV
+            eval_results_df = pd.DataFrame({
+                "metric": ["accuracy", "precision", "recall", "f1_score"],
+                "value": [
+                    class_report.get("accuracy", 0),
+                    class_report["weighted avg"]["precision"],
+                    class_report["weighted avg"]["recall"],
+                    class_report["weighted avg"]["f1-score"]
+                ]
+            })
+            eval_results_csv = os.path.join(output_folder, "unet_evaluation_results.csv")
+            eval_results_df.to_csv(eval_results_csv, index=False)
+
+            #  Upload all to MLflow (MinIO)
+            for f in [eval_results_csv, cm_path, class_report_path]:
+                if os.path.exists(f):
+                    mlflow.log_artifact(f, artifact_path="predictions")  # optional: "predictions" subfolder
+                    print(f" Logged artifact to MLflow: {Path(f).name}")
+                else:
+                    print(f" File not found: {f}")
+
+        if merge:
+            # go through the information for all tiles, find upper left most corner and lower right most corner
+            # --> these define the extend of the final output
+            # remember: lower left to upper right
+            geotrans_for_merge = np.array(geotrans_for_merge)
+            upleft_x_full = np.min(geotrans_for_merge[:, 0])
+            upleft_y_full = np.max(geotrans_for_merge[:, 3])
+            xmax_raster = np.argmax(geotrans_for_merge[:, 0])
+            ymin_raster = np.argmin(geotrans_for_merge[:, 3])
+            # calculate coordinate from array index
+            lowright_x_full = np.max(geotrans_for_merge[:, 0]) + geotrans_for_merge[
+                xmax_raster, 1] * geotrans_for_merge[xmax_raster, 2]
+            lowright_y_full = np.min(geotrans_for_merge[:, 3]) + geotrans_for_merge[
+                ymin_raster, 4] * geotrans_for_merge[ymin_raster, 5]
+
+            if len(set(geotrans_for_merge[:, 1])) != 1 or len(set(geotrans_for_merge[:, 4])) != 1:
+                warnings.warn("Not all tiles have the same resolution.")
+
+            x_length = (round((lowright_x_full - upleft_x_full) / geotrans_for_merge[0, 2]))
+            y_length = (round((lowright_y_full - upleft_y_full) / geotrans_for_merge[0, 5]))
+
+            if large_file:
+                dty = np.int8
+            else:
+                dty = np.float32
+
+            # create array to contain raster data
+            merged_raster = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length), dtype=dty)
+            print(f'True merged raster size: {merged_raster.nbytes / (1024 ** 2): .1f}MB.')
+            # create array to contain if pixel is the sum of 1, 2, or 4 tiles
+            # (1 - single tile, 2 - two overlapping edges, 4 - overlapping corners)
+            merge_counter = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length),
+                                     dtype=np.int8)
+
+            # for each image
+            for i, (pred, geotrans) in enumerate(zip(predictions_for_merge, geotrans_for_merge)):
+                # find location
+                upleft_x = round((geotrans[0] - upleft_x_full) / geotrans[2])
+                upleft_y = round((geotrans[3] - upleft_y_full) / geotrans[5])
+                lowright_x = round((geotrans[0] + geotrans[1] * geotrans[2] - upleft_x_full) / geotrans[2])
+                lowright_y = round((geotrans[3] + geotrans[4] * geotrans[5] - upleft_y_full) / geotrans[5])
+
+                # place raster
+                merged_raster[:, upleft_y:lowright_y, upleft_x:lowright_x] += pred
+                # increase counter for placed rasters
+                merge_counter[:, upleft_y:lowright_y, upleft_x:lowright_x] += np.ones_like(pred, dtype=np.int8)
+
+                # delete tile to use less space
+                predictions_for_merge[i] = []
+
+            if regression:
+                merged_raster = merged_raster[0]
+                merge_counter = merge_counter[0]
+
+                # divide raster by counter to turn overlaps into realistic values
+                merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
+
+                # set raster to -9999 where no predictions were placed
+                nodata = -9999
+                merged_raster[merge_counter == 0] = nodata  # maybe change to merged_raster[merged_raster == 0] = nodata
+            else:
+                if large_file:
+
+                    # Create a mask that is True where merge_counter is positive - uses less space than [condition] indexing (?)
+                    mask = merge_counter > 0
+                    # Apply the mask to both arrays and perform the division
+                    merged_raster[mask] //= merge_counter[mask]
+
+                else:
+                    merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
+
+                # divide raster by counter to turn overlaps into realistic values
+                if all_classes:
+                    pass
+                elif specific_class is None:
+                    # for decoded argmax value
+                    # merged_raster = np.where(merged_raster.max(axis=0) < 0.1, 14, merged_raster.argmax(axis=0)) #check if this is still relevant?
+                    merged_raster = merged_raster.argmax(axis=0)
+                else:
+                    # for probabilities of specific class [1] -> klasse 1
+                    merged_raster = merged_raster[specific_class]
+
+                # define nodata for classification (either background class or where no Tiles were placed)
+                nodata = None
+
+            if "float" in str(merged_raster.dtype):
                 dtype = gdal.GDT_Float32
             else:
                 dtype = gdal.GDT_Byte
 
-            if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
-                class_lst = class_lst.numpy()
-                class_lst *= ((128 / 4) - 1)
-                class_lst = np.around(class_lst).astype(np.int8)
-                dtype = gdal.GDT_Byte
-                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
-                          None, class_zero)
-            else:
-                store_tif(str(output_folder) + "\\" + os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
-                          geoproj, None, class_zero)
-    if validation_vision:
-        plot_valid_predict(output_folder, predict_path, regression, merge, class_zero)
-    if merge:
-        # go through the information for all tiles, find upper left most corner and lower right most corner
-        # --> these define the extend of the final output
-        # remember: lower left to upper right
-        geotrans_for_merge = np.array(geotrans_for_merge)
-        upleft_x_full = np.min(geotrans_for_merge[:, 0])
-        upleft_y_full = np.max(geotrans_for_merge[:, 3])
-        xmax_raster = np.argmax(geotrans_for_merge[:, 0])
-        ymin_raster = np.argmin(geotrans_for_merge[:, 3])
-        # calculate coordinate from array index
-        lowright_x_full = np.max(geotrans_for_merge[:, 0]) + geotrans_for_merge[
-            xmax_raster, 1] * geotrans_for_merge[xmax_raster, 2]
-        lowright_y_full = np.min(geotrans_for_merge[:, 3]) + geotrans_for_merge[
-            ymin_raster, 4] * geotrans_for_merge[ymin_raster, 5]
+            # Define the parameters for the name of output:
+            output_file_name_parts = [AOI, year, model_name, "prediction"]
+            output_file_name = "_".join(filter(None, output_file_name_parts)) + ".tif"
+            output_file = output_folder / output_file_name
+            print(output_file)
 
-        if len(set(geotrans_for_merge[:, 1])) != 1 or len(set(geotrans_for_merge[:, 4])) != 1:
-            warnings.warn("Not all tiles have the same resolution.")
+            store_tif(output_file, merged_raster, dtype,
+                      [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
+                      geoproj_for_merge, nodata, class_zero)
 
-        x_length = (round((lowright_x_full - upleft_x_full) / geotrans_for_merge[0, 2]))
-        y_length = (round((lowright_y_full - upleft_y_full) / geotrans_for_merge[0, 5]))
-
-        if large_file:
-            dty = np.int8
-        else:
-            dty = np.float32
-
-        # create array to contain raster data
-        merged_raster = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length), dtype=dty)
-        print(f'True merged raster size: {merged_raster.nbytes / (1024 ** 2): .1f}MB.')
-        # create array to contain if pixel is the sum of 1, 2, or 4 tiles
-        # (1 - single tile, 2 - two overlapping edges, 4 - overlapping corners)
-        merge_counter = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length),
-                                 dtype=np.int8)
-
-        # for each image
-        for i, (pred, geotrans) in enumerate(zip(predictions_for_merge, geotrans_for_merge)):
-            # find location
-            upleft_x = round((geotrans[0] - upleft_x_full) / geotrans[2])
-            upleft_y = round((geotrans[3] - upleft_y_full) / geotrans[5])
-            lowright_x = round((geotrans[0] + geotrans[1] * geotrans[2] - upleft_x_full) / geotrans[2])
-            lowright_y = round((geotrans[3] + geotrans[4] * geotrans[5] - upleft_y_full) / geotrans[5])
-
-            # place raster
-            merged_raster[:, upleft_y:lowright_y, upleft_x:lowright_x] += pred
-            # increase counter for placed rasters
-            merge_counter[:, upleft_y:lowright_y, upleft_x:lowright_x] += np.ones_like(pred, dtype=np.int8)
-
-            # delete tile to use less space
-            predictions_for_merge[i] = []
-
-        if regression:
-            merged_raster = merged_raster[0]
-            merge_counter = merge_counter[0]
-
-            # divide raster by counter to turn overlaps into realistic values
-            merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
-
-            # set raster to -9999 where no predictions were placed
-            nodata = -9999
-            merged_raster[merge_counter == 0] = nodata  # maybe change to merged_raster[merged_raster == 0] = nodata
-        else:
-            if large_file:
-
-                # Create a mask that is True where merge_counter is positive - uses less space than [condition] indexing (?)
-                mask = merge_counter > 0
-                # Apply the mask to both arrays and perform the division
-                merged_raster[mask] //= merge_counter[mask]
-
-            else:
-                merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
-
-            # divide raster by counter to turn overlaps into realistic values
-            if all_classes:
-                pass
-            elif specific_class is None:
-                # for decoded argmax value
-                # merged_raster = np.where(merged_raster.max(axis=0) < 0.1, 14, merged_raster.argmax(axis=0)) #check if this is still relevant?
-                merged_raster = merged_raster.argmax(axis=0)
-            else:
-                # for probabilities of specific class [1] -> klasse 1
-                merged_raster = merged_raster[specific_class]
-
-            # define nodata for classification (either background class or where no Tiles were placed)
-            nodata = None
-
-        if "float" in str(merged_raster.dtype):
-            dtype = gdal.GDT_Float32
-        else:
-            dtype = gdal.GDT_Byte
-
-        # Define the parameters for the name of output:
-        output_file_name_parts = [AOI, year, model_name, "prediction"]
-        output_file_name = "_".join(filter(None, output_file_name_parts)) + ".tif"
-        output_file = os.path.join(output_folder, output_file_name)
-        print(output_file)
-
-        store_tif(output_file, merged_raster, dtype,
-                  [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
-                  geoproj_for_merge, nodata, class_zero)
-
-        print(f"Prediction stored in {output_folder}.")
+            print(f"Prediction stored in {output_folder}.")

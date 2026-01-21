@@ -1,9 +1,14 @@
 from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
+from utils import backslash_to_forwardslash
+
 
 import os 
 import time
+import mlflow
+import mlflow.pytorch
+from mlflow.tracking import MlflowClient
 import torch
 import pathlib
 import warnings
@@ -14,6 +19,35 @@ from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Satura
 from fastai.vision.core import imagenet_stats
 from fastai.data.transforms import Normalize
 from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat, DiceLoss
+from mlflow_config import *
+
+# set Mlflow request
+os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "300"
+
+# Initialize Mlflow Client
+client = MlflowClient()
+
+# Define Experiment name
+experiment_name = "Beschirmung_Model"
+
+# check if experiment Exists
+experiment = client.get_experiment_by_name(experiment_name)
+
+# create new exp if not found
+if experiment is None:
+    print(f" Experiment '{experiment_name}' not found! Creating a new one...")
+    experiment_id = client.create_experiment(name=experiment_name)
+    print(f" Created new experiment: {experiment_name} (ID: {experiment_id})")
+else:
+    experiment_id = experiment.experiment_id
+    print(f" Using existing experiment: {experiment_name} (ID: {experiment_id})")
+
+# set the Active Experiment
+mlflow.set_experiment(experiment_name)
+
+# confirm Artifact Location:
+experiment = client.get_experiment(experiment_id)
+print(f" Experiment '{experiment_name}' Artifact Location: {experiment.artifact_location}")
 
 from train import CombinedLoss
 
@@ -60,7 +94,7 @@ CODES = ['NO_Data', 'Background', 'Beschirmung']
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 #CLASS_WEIGHTS = "weighted" #"weighted" #[0.01, 0.3, 0.69]
 #CLASS_WEIGHTS =[19, 4, 6, 35, 3, 38, 85, 5, 52, 123, 54]
-
+register_model=False
 ########################################################
 #################### PREDICTION ########################
 ########################################################
@@ -122,6 +156,14 @@ aug_pipe = A.Compose([
 
 # EXTRA END
 
+# Change paths to work on Windows and Linux
+image_path = backslash_to_forwardslash(image_path)
+mask_path = backslash_to_forwardslash(mask_path)
+base_dir = backslash_to_forwardslash(base_dir)
+model_path = backslash_to_forwardslash(model_path)
+predict_path = backslash_to_forwardslash(predict_path)
+predict_model = backslash_to_forwardslash(predict_model)
+
 
 def main():
     """Main function."""
@@ -129,8 +171,7 @@ def main():
     global large_file, specific_class, all_classes, transforms, VALID_SCENES, self_attention, monitor, loss_func, LR_FINDER, ENCODER_FACTOR, ARCHITECTURE, enable_regression, max_empty, attention_gates
 
     start_time = time.time()
-    temp = pathlib.PosixPath
-    pathlib.PosixPath = pathlib.WindowsPath
+
 
     if enable_extra_parameters:
         warnings.warn("Extra parameters are enabled. Code may behave in unexpected ways. "
@@ -176,7 +217,8 @@ def main():
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                    VALID_SCENES,
                    CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-                   class_zero, attention_gates)
+                   class_zero, register_model, attention_gates)
+
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI,
