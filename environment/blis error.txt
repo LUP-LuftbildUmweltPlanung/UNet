@@ -1,0 +1,1 @@
+conda install -c powerai spacy==3.7.2
