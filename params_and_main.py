@@ -32,6 +32,7 @@ from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
 from utils import backslash_to_forwardslash
+from train import CombinedLoss
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -99,7 +100,6 @@ mlflow.set_experiment(experiment_name)
 experiment = client.get_experiment(experiment_id)
 print(f" Experiment '{experiment_name}' Artifact Location: {experiment.artifact_location}")
 
-from train import CombinedLoss
 
 # PARAMETERS
 Create_tiles = False
