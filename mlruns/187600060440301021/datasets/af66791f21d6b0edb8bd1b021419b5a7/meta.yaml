@@ -1,6 +1,0 @@
-digest: 7dea362b
-name: prediction_tiles
-profile: '{"num_rows": 0, "num_elements": 0}'
-schema: null
-source: '{"uri": "W:\\VegetationCoverClassifier\\Mainz_validation\\Emden_2023\\unet_500\\img_tiles"}'
-source_type: local
