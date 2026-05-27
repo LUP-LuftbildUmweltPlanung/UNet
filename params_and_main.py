@@ -15,7 +15,6 @@ import cv2
 from torch.hub import load_state_dict_from_url
 from sqlalchemy import false
 from mlflow.tracking import MlflowClient
-
 # Compatibility patches for fastai==2.5.1 with newer numpy / torchvision / PyTorch
 if not hasattr(np, "int"):
     np.int = int
@@ -25,7 +24,6 @@ torchvision_models_utils.load_state_dict_from_url = load_state_dict_from_url
 sys.modules["torchvision.models.utils"] = torchvision_models_utils
 
 from fastai.data.load import _FakeLoader
-
 if not hasattr(_FakeLoader, "pin_memory_device"):
     _FakeLoader.pin_memory_device = ""
 
@@ -34,20 +32,6 @@ from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
 from utils import backslash_to_forwardslash
-<<<<<<< HEAD
-
-
-import os 
-import time
-import mlflow
-import mlflow.pytorch
-from mlflow.tracking import MlflowClient
-import torch
-import pathlib
-import warnings
-import albumentations as A
-=======
->>>>>>> new_features_2
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -94,7 +78,7 @@ os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] = "5"
 client = MlflowClient()
 
 # Define Experiment name
-experiment_name = "LUBI_V3_1"
+experiment_name = "EXP"
 
 # check if experiment Exists
 experiment = client.get_experiment_by_name(experiment_name)
@@ -127,14 +111,13 @@ Predict = True
 ######################################################
 
 # if using without mask, set mask_path = None
-image_path = "/home/ume/Shadi/Valid/Emden_2023.tif"
-# mask_path =  r'/home/ume/Shadi/UNet_tile/Essen_stadt_2018_LUBI_V3_Mask_clip_final_plan0_clip_clean.tif'
-mask_path = None
-base_dir = r'D:\UNet_branch\data'
+image_path = "Path/to/ratser.tif"
+mask_path =  r'Path/to/mask.tif'
+base_dir = r'output/folder'
 
 #for prediction patch_overlap = 0.2 to prevent edge artifacts and split = [1] to predict full image
-patch_size = 500
-patch_overlap = 0.2 #0
+patch_size = 400
+patch_overlap = 0.2 #0 for train option
 split = [1]
 
 ############################################################
@@ -142,9 +125,9 @@ split = [1]
 ############################################################
 # If using created tiles, set data_path to base_dir.
 data_path = base_dir
-model_path = r"/home/ume/Shadi/UNet_2/UNet/models" # The path where the model directories will be created.
-description = "test" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
-info = "LUBI_V3_1_RGBI_nDOM_Focal_30" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
+model_path = r"path/to/models" # The path where the model directories will be created.
+description = "RGBI+nDOM" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
+info = "some info about the model" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
 existing_model = None # r"D:\Beschirmung_model\LUBI_data\UNet-Mlflow\models\best-model_2.pth" # r"H:\Shadi\train_data_LUBI_V2\UNet_data_5_classes\Model_path\LUBI_V2_lr0001_Focal_20cm_rgbi_nDSM_5_classes\LUBI_V2_lr0001_Focal_20cm_rgbi_nDSM_5_classes.pkl" #or existing model path for transfer_learning
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
 EPOCHS = 10
@@ -153,24 +136,17 @@ enable_regression = False
 visualize_data_example = True
 export_model_summary = True
 # only relevant for classification
-CODES = ['NO_Data', 'Background', 'hohe_Vegetation', 'niedrige_Vegetation', 'Grassland', 'Invekos','Wasser', 'Gründach']
+CODES = ['NO_Data', 'Background', 'hohe_Vegetation', 'niedrige_Vegetation', 'Grassland', 'Invekos','Wasser','Gründach']
 # CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
-<<<<<<< HEAD
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
-#CLASS_WEIGHTS = "weighted" #"weighted" #[0.01, 0.3, 0.69]
-#CLASS_WEIGHTS =[19, 4, 6, 35, 3, 38, 85, 5, 52, 123, 54]
 register_model=False
-=======
-CLASS_WEIGHTS = "even" # [0.0389341399065, 4.243373469531772, 3.1823014185075422, 33.125322411178416, 6.2696211385501375, 4.411929747739644, 32.296633816055866, 65.536323844474] # "even" , [0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
-register_model= False
 exclude_height_from_color_aug = True   # Apply color augmentations only to RGBI; keep nDom/height unchanged
->>>>>>> new_features_2
 ########################################################
 #################### PREDICTION ########################
 ########################################################
-predict_path = r'W:\VegetationCoverClassifier\Mainz_validation\Emden_2023\unet_500\img_tiles'
-predict_model = r"mlflow-artifacts:/8/970780c80bd0483c969d2bc73eee9cc4/artifacts/LUBI_V3_1_RGBI_nDOM_Focal_plan0_500_adjust_Invekos.pkl"  # The path to the trained model that will be used to predict the image tiles. This path should be constructed as "model_path/description/description.pkl"
-AOI = "Emden_500_new_env" # Area of Interest (AOI). This parameter is used to append the output TIFF file to define the city of the prediction data.
+predict_path = r'Path\to\img_tiles'
+predict_model = r"Path/to/pretrained_model.pkl"  # The path to the trained model that will be used to predict the image tiles. This path should be constructed as "model_path/description/description.pkl"
+AOI = "AOI" # Area of Interest (AOI). This parameter is used to append the output TIFF file to define the city of the prediction data.
 year = "2023" # The year of the prediction data. To append the output TIFF file to define the year.
 TTA = True # Apply Test-Time Augmentation (flips and rotations) to improve prediction robustness
 merge = True # A boolean to decide whether to merge the output prediction tiles into a single file or keep them as separate tiles.
@@ -210,16 +186,6 @@ transforms = True
 split_idx = None # Apply Augmentations for 0 = Train, 1 = Validation, None = Both, Hint: Apply None with "int16" data type
 n_transform_imgs = 0.9 # Percentage of augmented images [0-1]. Decimals always be rounded up.
 aug_pipe = A.Compose([
-<<<<<<< HEAD
-    A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
-    A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.
-    A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
-        brightness_limit=(-0.1, 0.1),
-        contrast_limit=(-0.1, 0.1),
-        p=0.5
-    ),
-    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
-=======
     A.HorizontalFlip(p=0.8),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.8),  # Applies a vertical flip to the image with a probability of 0.5.
     # A.Downscale(
@@ -240,10 +206,7 @@ aug_pipe = A.Compose([
        p=0.5
    )
 #    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
->>>>>>> new_features_2
-
 ])  # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
-
 
 # EXTRA END
 
@@ -308,12 +271,7 @@ def main():
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                    VALID_SCENES,
                    CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-<<<<<<< HEAD
-                   class_zero, register_model)
-=======
                    class_zero, register_model, attention_gates, exclude_height_from_color_aug)
-
->>>>>>> new_features_2
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI,
