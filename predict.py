@@ -1,521 +1,437 @@
+import glob
 import os
 import warnings
 import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import math
-import shutil
-import mlflow.pytorch
+import torch
 import socket
-import sys
-import shutil
-import tempfile
 import mlflow
-from mlflow.tracking import MlflowClient
-from mlflow.models import infer_signature
-from torch import nn, Tensor
-import json
+import mlflow.pytorch
+import time
+from tqdm import tqdm
 from pathlib import Path
-from typing import Optional
-import albumentations as A
-
-from data import create_data_block
-from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, \
-    SegmentationAlbumentationsTransform, process_and_save_params, get_image_metadata
-
-import fastai.vision.models as models
-from fastai.vision.core import imagenet_stats
-from fastai.vision.learner import model_meta, create_body
-
-from fastai.layers import NormType
-from fastai.learner import Learner
+from osgeo import gdal
 from fastai.learner import load_learner
-from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat
-from fastai.metrics import rmse, R2Score, DiceMulti, foreground_acc
-from fastai.optimizer import Adam
+from sklearn.metrics import confusion_matrix, classification_report
+import rasterio
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
 
-from fastai.callback.progress import CSVLogger
-from fastai.callback.tracker import SaveModelCallback
-from fastai.data.transforms import Normalize
-from fastai.torch_core import params, to_device, apply_init
 
-from fastcore.basics import risinstance, defaults, ifnone
-from fastcore.foundation import L
 
-def log_metrics_mlflow(hist_path, monitor):
+def load_fastai_model_flexible(model_uri):
     """
-    Logs training metrics (train_loss, valid_loss, dice_multi) from history CSV to MLflow.
+    Load a FastAI model from a local path, MLflow run URI, or artifact URI.
 
     Parameters:
-    - hist_path (Path): Path to the training history CSV.
-    - monitor (str): The primary metric to monitor (e.g., "valid_loss", "dice_multi").
+        model_uri (str):
+            - Local path: "/path/to/model.pkl"
+            - MLflow run artifact: "mlflow-artifacts:/<exp_id>/<run_id>/artifacts/<model.pkl>"
+            - Run ID style: "runs:/<run_id>/Beschirmung.pkl"
+
+    Returns:
+        Learner object loaded via fastai.
     """
-    if not hist_path.exists():
-        print(f" Warning: Metrics file not found at {hist_path}")
-        return
-
-    #  Read the training history
-    hist = pd.read_csv(hist_path)
-
-    #  Log metrics for each epoch
-    for epoch, row in hist.iterrows():
-        mlflow.log_metric("train_loss", row["train_loss"], step=epoch)
-        mlflow.log_metric("valid_loss", row["valid_loss"], step=epoch)
-        mlflow.log_metric("dice_multi", row["dice_multi"], step=epoch)
-
-        #  Log primary monitoring metric separately (for MLflow visualization)
-        if monitor in row:
-            mlflow.log_metric(monitor, row[monitor], step=epoch)
-
-    print(f" Metrics logged to MLflow from {hist_path}")
+    if model_uri.startswith("mlflow-artifacts:/") or model_uri.startswith("runs:/"):
+        print(f" Downloading model artifact from MLflow: {model_uri}")
+        local_path = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
+        return load_learner(local_path)
+    elif Path(model_uri).exists():
+        print(f" Loading model from local path: {model_uri}")
+        return load_learner(model_uri)
+    else:
+        raise ValueError(f" Unsupported or non-existent model path: {model_uri}")
 
 
+# save the predicted tiles
+def store_tif(output_folder, output_array, dtype, geo_transform, geo_proj, nodata_value, class_zero=False):
+    """Stores a tif file in a specified folder."""
+    driver = gdal.GetDriverByName('GTiff')
+
+    if len(output_array.shape) == 3:
+        out_ds = driver.Create(str(output_folder), output_array.shape[2], output_array.shape[1], output_array.shape[0],
+                               dtype)
+    else:
+        out_ds = driver.Create(str(output_folder), output_array.shape[1], output_array.shape[0], 1, dtype)
+    out_ds.SetGeoTransform(geo_transform)
+
+    out_ds.SetProjection(geo_proj)
+
+    if class_zero:
+        # Process the output array to handle class definitions
+        processed_array = np.where(output_array == 0, nodata_value, output_array - 1)  # Class 0 as NaN and decrement other classes by 1
+    else:
+        processed_array = output_array
 
 
-def load_split_raster_params(json_path):
+    if len(processed_array.shape) == 3:
+        for b in range(processed_array.shape[0]):
+            out_ds.GetRasterBand(b + 1).WriteArray(processed_array[b])
+    else:
+        out_ds.GetRasterBand(1).WriteArray(processed_array)
+
+    # Loop through the image bands to set nodata
+    if nodata_value is not None:
+        for i in range(1, out_ds.RasterCount + 1):
+            # Set the nodata value of the band
+            out_ds.GetRasterBand(i).SetNoDataValue(nodata_value)
+
+    out_ds.FlushCache()
+    out_ds = None
+
+
+# create valid figures
+def plot_valid_predict(output_folder, predict_path, regression=False, merge=False, class_zero=False):
+    if merge:
+        raise ValueError("It's not possible to calculate the confusion matrix with merged tiles")
+    elif regression:
+        raise ValueError("This function is just for classification problems")
+
+    # Create a new folder to save the figures
+    valid_path = output_folder / "Valid_figures"
+    os.makedirs(valid_path, exist_ok=True)
+
+    # Replace the last part of the truth_label path
+    truth_label = Path(str(predict_path).replace('img_tiles', 'mask_tiles'))
+
+    y_true = []
+    y_pred = []
+
+    for file_name in os.listdir(output_folder):
+        if file_name.endswith('.tif'):
+            pred_path = output_folder / file_name
+            true_path = truth_label / file_name
+
+            with rasterio.open(pred_path) as src_pred:
+                pred_data = src_pred.read(1).astype(np.int64)  # Assuming single band for class labels
+
+            with rasterio.open(true_path) as src_true:
+                true_data = src_true.read(1).astype(np.int64)  # Assuming single band for class labels
+
+            # If class_zero is true, shift class values accordingly
+            if class_zero:
+                # true_class = true_class[true_class != 0] - 1
+                true_data[true_data != 0] -= 1
+
+            y_true.extend(true_data.flatten())
+            y_pred.extend(pred_data.flatten())
+
+    if not y_true or not y_pred:
+        raise ValueError("No valid tiles found for evaluation")
+
+    # Compute the confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    class_report = classification_report(y_true, y_pred, output_dict=True, zero_division=1)
+    #  Extract only class names (exclude "accuracy", "macro avg", etc.)
+    class_labels = [str(label) for label in class_report.keys() if
+                    label not in ["accuracy", "macro avg", "weighted avg"]]
+
+    # Convert the classification report dictionary into a DataFrame for visualization
+    dataframe = pd.DataFrame(class_report).transpose()
+
+    #  Save classification report as an image
+    classification_report_path = os.path.join(valid_path, "classification_report.png")
+
+    # Keep only class label rows (like 0, 1, 2...) and drop "support" column
+    filtered_df = dataframe.loc[dataframe.index.str.isdigit(), ['precision', 'recall', 'f1-score']]
+
+    #  Plot and save the classification report heatmap
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(filtered_df.astype(float), annot=True, fmt='.2f', cmap='crest')
+    plt.title('Classification Report')
+    plt.savefig(classification_report_path)
+    plt.close()
+
+    #  Plot and save the confusion matrix heatmap
+    plt.figure(figsize=(10, 7))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='crest', xticklabels=class_labels, yticklabels=class_labels)
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+    confusion_matrix_path = valid_path / "Confusion_Matrix.png"
+    plt.savefig(confusion_matrix_path)
+    plt.close()
+
+    print("Confusion Matrix:")
+    print(cm)
+    print("\nClassification Report (as dictionary):")
+    print(class_report)
+
+    return cm, class_report, confusion_matrix_path, classification_report_path
+
+
+def save_predictions(predict_model, predict_path, regression, merge=False, all_classes=False, specific_class=None,
+                     large_file=False, AOI=None, year=None, validation_vision=True, class_zero=False):
     """
-    Load parameters from a JSON file and extract the values.
+    Runs a prediction on all tiles within a folder and stores predictions in the predict_tiles folder
 
     Parameters:
     -----------
-    json_path: Path to the JSON file containing the parameters.
-
-    Returns:
-    --------
-    params: A dictionary containing the parameters.
+        learn :             Unet learner containing a Unet prediction model
+        path :              Path containing tiles for prediction
+        regression :        If the prediction should output continuous values (else: classification)
+        merge :             If predicted tiles should be merged to a single .tif file (default=False)
+        all_classes :       If the prediction should contain all prediction values for all classes (default=False)
+        specific_class :    Only prediction values for this specific class will be stored (default=None)
     """
-    if not os.path.exists(json_path):
-        raise FileNotFoundError(f"JSON file not found: {json_path}")
+    #  Get PC name dynamically
+    pc_name = socket.gethostname()
+    with mlflow.start_run(run_name=f"Prediction_{os.path.basename(predict_model).split('.')[0]}"):
+        #  Log parameters
+        mlflow.log_param("predict_model", predict_model)
+        mlflow.log_param("predict_path", predict_path)
+        mlflow.log_param("regression", regression)
+        mlflow.log_param("merge", merge)
+        mlflow.log_param("all_classes", all_classes)
+        mlflow.log_param("specific_class", specific_class)
+        mlflow.log_param("large_file", large_file)
+        mlflow.log_param("AOI", AOI)
+        mlflow.log_param("year", year)
+        mlflow.log_param("validation_vision", validation_vision)
+        mlflow.log_param("class_zero", class_zero)
 
-    with open(json_path, 'r') as json_file:
-        params = json.load(json_file)
+        # Set the MLflow Source Name with PC name
+        mlflow.set_tag("mlflow.source.name", f"{pc_name}_params_and_main.py")
+        # Log PC name as a parameter in MLflow
+        mlflow.log_param("pc_name", pc_name)
 
-    return params
+        # Mlflow the path of the valid data
+        # Create a minimal DataFrame with just the path
+        df = pd.DataFrame([], columns=[])  # empty dataset
 
+        # Log it using from_pandas with the folder path as the source
+        dataset = mlflow.data.from_pandas(df, source=predict_path, name="prediction_tiles")
+        mlflow.log_input(dataset, context="inference")
 
-def _add_norm(dls, meta, pretrained):
-    """Adds a normalization to a pretrained model."""
-    if not pretrained:
-        return
-    stats = meta.get('stats')
-    if stats is None:
-        return
-    if not dls.after_batch.fs.filter(risinstance(Normalize)):
-        dls.add_tfms([Normalize.from_stats(*stats)], 'after_batch')
+        print(f" Logged dataset folder path as input: {predict_path}")
 
+        print(f" Logged dataset source path: {predict_path}")
 
-def default_split(m):
-    """Default split of a model between body and head"""
-    return L(m[0], m[1:]).map(params)
+       # learn = load_learner(Path(predict_model))
+        learn = load_fastai_model_flexible(predict_model)
 
+        path = Path(predict_path)
 
-def _xresnet_split(m):
-    """Splits XResnet between body and head."""
-    return L(m[0][:3], m[0][3:], m[1:]).map(params)
-
-
-_default_meta = {'cut': None, 'split': default_split}
-_xresnet_meta = {'cut': -4, 'split': _xresnet_split, 'stats': imagenet_stats}
-
-
-class Learner_adjust(Learner):
-    """Edits the fastai Learner predict function to work with regression output."""
-
-    def predict(self, item, rm_type_tfms=None, with_input=False):
-        """Only contains the data-handling necessary to return regression outputs."""
-        dl = self.dls.test_dl([Path(item)], rm_type_tfms=rm_type_tfms, num_workers=0)
-        _, preds, _, dec_preds = self.get_preds(dl=dl, with_input=True, with_decoded=True)
-        res = dec_preds[0], preds[0]
-        return res
-
-
-def unet_learner_MS(dls, arch, pretrained=True,
-                    # learner args
-                    loss_func=None, norm_type: Optional[NormType] = NormType, opt_func=Adam, lr=defaults.lr,
-                    splitter=None, cbs=None, metrics=None, path=None,
-                    model_dir='models', wd=None, wd_bn_bias=False, train_bn=True, moms=(0.95, 0.85, 0.95),
-                    regression=False, self_attention=False):
-    """
-    Creates a fastai Unet Learner based on a classification architecture using Dynamic Unet.
-    To allow for more input-bands, the first layer of the classification architecture is removed
-    and replaced with a new convolutional layer.
-
-    Parameters:
-    -----------
-        dls :       Dataloaders containing the paths to training and validation data
-        arch :      Architecture to use as body for the Unet (e.g. xResNet34)
-        loss_func : Loss function to use during training
-        ...
-
-    Returns:
-    ---------
-        learn :     A fastai Learner class
-
-    References:
-    ----------
-        Based on the unet_learner function in fastai.vision.learner
-    """
-    size = next(iter(dls.train_ds))[0].shape[-2:]
-    n_input_channels = next(iter(dls.train_ds))[0].size(0)
-
-    meta = model_meta.get(arch, _default_meta)
-    body = create_body(arch, pretrained, cut=None)
-
-    prev_layer = body[0][0]
-    body[0][0] = nn.Conv2d(n_input_channels, prev_layer.out_channels,
-                           kernel_size=prev_layer.kernel_size,
-                           stride=prev_layer.stride,
-                           padding=prev_layer.padding,
-                           bias=prev_layer.bias)
-
-    if regression:
-        n_out = 1
-    else:
-        n_out = len(dls.vocab)
-    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
-                                              self_attention=self_attention, y_range=None, norm_type=norm_type,
-                                              last_cross=True,
-                                              bottle=False), dls.device)
-
-    splitter = ifnone(splitter, meta['split'])
-    if regression:
-        learn = Learner_adjust(dls=dls, model=model, loss_func=loss_func, opt_func=opt_func, lr=lr, splitter=splitter,
-                               cbs=cbs, metrics=metrics, path=path, model_dir=model_dir, wd=wd, wd_bn_bias=wd_bn_bias,
-                               train_bn=train_bn, moms=moms)
-    else:
-        learn = Learner(dls=dls, model=model, loss_func=loss_func, opt_func=opt_func, lr=lr, splitter=splitter, cbs=cbs,
-                        metrics=metrics, path=path, model_dir=model_dir, wd=wd, wd_bn_bias=wd_bn_bias,
-                        train_bn=train_bn, moms=moms)
-    # if pretrained and n_input_channels == 3:
-    #     learn.freeze()
-    #     apply_init(model[2], nn.init.kaiming_normal_)
-    # else:
-    #     apply_init(model, nn.init.kaiming_normal_)
-    return learn
-
-
-def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_factor, lr_finder=None, regression=False,
-               loss_func=None, monitor=None, existing_model=None, self_attention=False, export_model_summary=False):
-    """
-    Takes a created unet_learner and trains the model on data provided within the dataloaders.
-
-    Parameters:
-    -----------
-        class_weights :     Training weights for the different classes
-        dls :               Fastai dataloader containing training and validation data
-        architecture :      Classification body within the Unet
-        epochs :            Training epochs
-        path :              Path for storing training history and plot
-        lr :                Learning rate
-        encoder_factor :    lr / encoder_factor = lower bound of learning rate testing
-        lr_finder :         Which method to use to find an optimal learning rate (default=None)
-        regression :        If training a regression method (default=False -> classification)
-        loss_func :         Which loss function to use (default=None -> MSELossFlat or CrossEntropyLossFlat)
-        monitor :           Which training monitor to use (default=None -> 'valid_loss')
-
-    Returns:
-    ---------
-        learn :             Unet learner now containing a trained model
-    """
-
-    weights = Tensor(class_weights).cuda()
-
-    if regression:
-        if loss_func is None:
-            loss_func = MSELossFlat(axis=1)
-        metrics = [rmse, R2Score()]
-    else:
-        if loss_func is None:
-            loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
-        metrics = [DiceMulti()]
-
-    if regression and monitor is None:
-        monitor = 'r2_score'
-    elif monitor is None:
-        monitor = 'valid_loss'
-
-    if monitor in ['train_loss', 'valid_loss']:
-        comp = np.less
-    else:
-        comp = np.greater
-        if monitor not in ['train_loss', 'valid_loss', 'r2_score', 'dice_multi']:
-            warnings.warn("Monitor not recognised. Assuming maximization.")
-    cbs = [SaveModelCallback(monitor=monitor, comp=comp, fname='best-model'), CSVLogger()]
-
-    loss_func.func.weight = weights
-    # print('weights_tensor: ',loss_func.func.weight)
-
-    if existing_model is None:
-        learn = unet_learner_MS(dls,  # DataLoaders
-                                architecture,  # xResNet34
-                                loss_func=loss_func,  # Weighted cross entropy loss
-                                opt_func=Adam,  # Adam optimizer
-                                metrics=metrics,
-                                cbs=cbs,
-                                regression=regression,
-                                self_attention=self_attention
-                                )
-    else:
-        learn = load_learner(existing_model)
-        learn.dls = dls
-        learn.add_cb(CSVLogger())
-        learn.loss_func = loss_func
-        learn.opt_func = Adam
-
-    # save model summary
-    if export_model_summary:
-        default_stdout = sys.stdout
-        summary_path = Path(path.with_stem(path.stem + "_model_summary").with_suffix(".txt"))
-        sys.stdout = open(summary_path, 'w')
-        print('Class_weights:', class_weights)
-        print(learn.summary())
-        print(learn.model)
-        sys.stdout.close()
-        sys.stdout = default_stdout
-
-    if lr_finder is not None:
-        lr = find_lr(learn, lr_finder)
-        print(f'Optimized learning rate: {lr}')
-
-    learn.unfreeze()
-    learn.fit_one_cycle(
-        epochs,
-        lr_max=slice(lr / encoder_factor, lr)
-    )
-
-    # plot loss
-    learn.recorder.plot_loss()
-    # move history
-    hist_path = Path(path.with_stem(path.stem + "_history").with_suffix(".csv"))
-    # os.rename(learn.path / learn.csv_logger.fname, hist_path)
-    shutil.move(learn.path / learn.csv_logger.fname, hist_path)
-    learn.remove_cb(CSVLogger)
-
-    hist = pd.read_csv(hist_path, header=0, index_col=None)
-    train_loss = hist['train_loss'].tolist()
-    valid_loss = hist['valid_loss'].tolist()
-
-    plt.figure(figsize=(7, 7))
-    # plt.plot(train_loss, label='Training')
-    plt.plot(valid_loss, label='Validation')
-
-    if monitor not in ['train_loss', 'valid_loss']:
-        monitor = hist['train_loss'].tolist()
-        plt.plot(monitor, label='Training')
-        annot_min(monitor)
-        plt.ylim(0, np.max(monitor) * 1.3)
-    else:
-        annot_min(valid_loss)
-        plt.ylim(0, 1.1)
-
-    plt.xlabel('Episode')
-    plt.ylabel('Loss')
-    plt.title('Model Training Overview')
-    plt.legend()
-    loss_plot_path = str(hist_path).rsplit('.', 1)[0] + '_loss_plot.png'
-    plt.savefig(loss_plot_path, dpi=200)
-    plt.close()  #  Free memory
-
-    return learn
-
-### define train function to be able to use for train_multi and new params approach
-def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
-                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
-               VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-               class_zero, register_model):
-    try:
-        pc_name = socket.gethostname()
-        #  Check if an MLflow run
-        if mlflow.active_run():
-            print(f" Using existing MLflow run: {mlflow.active_run().info.run_id}")
+        if not merge:
+            output_folder = path.parent / ('predicted_tiles_' + Path(predict_model).stem)
         else:
-            mlflow.start_run(run_name=description)
-            print(f" Started MLflow run: {mlflow.active_run().info.run_id}")
-            # Log system or run-level params/tags
-            #mlflow.set_tag("mlflow.source.name", pc_name)
-            mlflow.log_param("pc_name", pc_name)
+            output_folder = path.parent
 
-            # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
-            data_path = Path(data_path)
-            # Get datatype of training data
-            print(data_path)
-            dtype = get_datatype(data_path)
-            patch_size, resolution, number_of_bands = get_image_metadata(data_path)
-            if existing_model is not None:
-                existing_model = Path(existing_model)
-            if transforms:
-                n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
-                print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
-                # Use the imported aug_pipe
-                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
+        model_name = os.path.basename(predict_model).split('.')[0]
+
+        if not os.path.exists(output_folder):
+            os.makedirs(output_folder)
+        tiles = glob.glob(str(path) + "/*.tif")
+
+        # create necessary variables to track merge
+        if merge:
+            geoproj_for_merge = None
+            predictions_for_merge = []
+            predictions_for_merge_size = 0
+            geotrans_for_merge = []
+
+        t = time.localtime()
+        current_time = time.strftime("%H:%M:%S", t)
+        print(f'Started at: {current_time}')
+
+        for i in tqdm(range(len(tiles)), desc='Processing tiles'):
+            # print(f'Current progress: {i}/{len(tiles)}')
+            tile_preds = learn.predict(Path(tiles[i]), with_input=False)
+
+
+            class_lst = []
+
+            if regression:
+                for cl in range(len(tile_preds[1])):
+                    class_lst.append(tile_preds[1][cl])
             else:
-                # Define a default augmentation pipeline
-                aug_pipe = A.Compose([
-                    A.NoOp()  # No operation, pass-through transform
-                ])
-                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
+                for cl in range(len(tile_preds[2])):
+                    class_lst.append(tile_preds[2][cl])
 
-            # Update new_path to include the 'models' directory and description
-            new_path = Path(model_Path) / description
+            class_lst = torch.stack(class_lst)
 
-            # Create the directories if they don't exist
-            new_path.mkdir(parents=True, exist_ok=True)
+            # go through all predictions and store their physical coordinates and check, that all have the same projection
+            if merge:
+                img_ds_proj = gdal.Open(str(tiles[i]))
 
-            # Path to save the model with .pkl extension
-            model_path = new_path / f"{description}.pkl"
+                if geoproj_for_merge is None:
+                    geoproj_for_merge = img_ds_proj.GetProjection()
+                elif geoproj_for_merge is not None and geoproj_for_merge != img_ds_proj.GetProjection():
+                    warnings.warn("Geoprojection is not the same for all prediction tiles.")
 
-            # Save parameters to a JSON file
-            process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE,
-                                    EPOCHS=EPOCHS, enable_regression=enable_regression,
-                                    LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR,
-                                    CLASS_WEIGHTS=CLASS_WEIGHTS,
-                                    loss_func=loss_func, self_attention=self_attention, monitor=monitor,
-                                    VALID_SCENES=VALID_SCENES,
-                                    ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
-                                    class_zero=class_zero)
-            # Structure the parameters dictionary like the JSON file
-            params_dict = {
-                "data_path": str(data_path),
-                "transforms": bool(transforms),
-                "BATCH_SIZE": BATCH_SIZE,
-                "EPOCHS": EPOCHS,
-                "enable_regression": enable_regression,
-                "LEARNING_RATE": LEARNING_RATE,
-                "LR_FINDER": LR_FINDER,
-                "ENCODER_FACTOR": ENCODER_FACTOR,
-                "CLASS_WEIGHTS": CLASS_WEIGHTS,
-                "loss_func": str(loss_func),
-                "self_attention": self_attention,
-                "monitor": monitor,
-                "VALID_SCENES": VALID_SCENES,
-                "ARCHITECTURE": str(ARCHITECTURE),
-                "CODES": CODES,
-                "n_transform_imgs": n_transform_imgs,
-                "info": info,
-                "class_zero": class_zero,
-                "patch_size": str(patch_size),
-                "resolution": str(resolution),
-                "data_type": dtype,
-                "number_of_bands": str(number_of_bands),
-                "aug_params_": aug_pipe,
-                "Percentage of augmented images": n_transform_imgs,
-                "class_zero": class_zero
-            }
-            mlflow.log_params(params_dict)
+                ulx, xres, xskew, uly, yskew, yres = img_ds_proj.GetGeoTransform()
+                class_lst = class_lst.numpy()
 
-        # Data Block for Reference Storage
-        db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
-                               transforms=transforms)
-        if enable_regression:
-            CLASS_WEIGHTS = [1]
-        elif isinstance(CLASS_WEIGHTS, str):
-            if CLASS_WEIGHTS == "even":
-                CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
-            elif CLASS_WEIGHTS == "weighted":
-                CLASS_WEIGHTS = get_class_weights(data_path, db)
+                if large_file and np.max(class_lst) <= 1:
+                    class_lst *= ((128 / 4) - 1)
+                    class_lst = np.around(class_lst).astype(np.int8)
+                predictions_for_merge.append(class_lst)
+                predictions_for_merge_size += class_lst.nbytes
+                geotrans_for_merge.append([ulx, img_ds_proj.RasterXSize, xres, uly, img_ds_proj.RasterYSize, yres])
 
 
-        dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
-        dls.vocab = CODES
-        # Convert FastAI datasets to DataFrames and log as input
-        try:
-            train_items = dls.train_ds.items if hasattr(dls.train_ds, "items") else None
-            valid_items = dls.valid_ds.items if hasattr(dls.valid_ds, "items") else None
-
-            if isinstance(train_items, (list, tuple, np.ndarray)):
-                train_df = pd.DataFrame(train_items, columns=["train_paths"])
-                dataset_train = mlflow.data.from_pandas(train_df, name="training_dataset")
-                mlflow.log_input(dataset_train, context="training")
-                print(" Training dataset logged to MLflow.")
-
-            if isinstance(valid_items, (list, tuple, np.ndarray)):
-                valid_df = pd.DataFrame(valid_items, columns=["valid_paths"])
-                dataset_valid = mlflow.data.from_pandas(valid_df, name="validation_dataset")
-                mlflow.log_input(dataset_valid, context="validation")
-                print(" Validation dataset logged to MLflow.")
-
-        except Exception as e:
-            print(f" Failed to log datasets to MLflow: {e}")
-
-        inputs, targets = dls.one_batch()
-        # Prepare inputs for logging (move to CPU and detach)
-        sample_input = inputs.cpu().detach()
-        sample_output = targets.cpu().detach()
-
-        # Infer the input/output schema
-        signature = infer_signature(sample_input.numpy(), sample_output.numpy())
-        input_example = sample_input.numpy()
-
-        if visualize_data_example:
-            inputs_np = inputs.cpu().detach().numpy()
-            targets_np = targets.cpu().detach().numpy()
-            visualize_data(inputs_np, model_path)
-            os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
-            visualize_data(targets_np, model_path)
-            os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
-
-        print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
-        # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
-        print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
-        print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
-
-        if enable_regression:
-            print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
-        else:
-            print(f"Class weights: {CLASS_WEIGHTS}")
-
-        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
-                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
-                           regression=enable_regression, loss_func=loss_func, monitor=monitor,
-                           existing_model=existing_model, self_attention=self_attention,
-                           export_model_summary=export_model_summary)
-
-        # Call `log_metrics_mlflow()` to log metrics to MLflow
-        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
-        log_metrics_mlflow(hist_path, monitor)
-
-        #  Define relative artifact path inside MLflow run
-        artifact_path = "models"
-
-        try:
-            #  Log the model to MLflow (register or just log)
-            if register_model:
-                mlflow.pytorch.log_model(
-                    learn.model,
-                    artifact_path=artifact_path,
-                    registered_model_name=description,
-                    signature=signature,
-                    input_example=input_example
-                )
-                print(f" Model Registered in MLflow under name: {description}")
             else:
-                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path, signature=signature, input_example=input_example)
-                print(" Model Logged to MLflow (but NOT registered)")
+                if regression:
+                    pass
+                elif all_classes:
+                    pass
+                elif specific_class is None:
+                    # for decoded argmax value
+                    class_lst = class_lst.argmax(axis=0)
+                else:
+                    # for probabilities of specific class [1] -> klasse 1
+                    class_lst = class_lst[specific_class]
+                img_ds_proj = gdal.Open(str(tiles[i]))
+                geotrans = img_ds_proj.GetGeoTransform()
+                geoproj = img_ds_proj.GetProjection()
 
-            #  Export model locally
-            learn.export(model_path)
-            print(f" Training Completed! Model saved at: {model_path}")
+                if "float" in str(class_lst.dtype):
+                    dtype = gdal.GDT_Float32
+                else:
+                    dtype = gdal.GDT_Byte
 
-            #  Log all files in new_path as artifacts
-            for file in os.listdir(new_path):
-                src_file = os.path.join(new_path, file)
-                if os.path.isfile(src_file):
-                    mlflow.log_artifact(src_file)
-                    print(f" Logged artifact: {file}")
+                if large_file and np.max(class_lst.numpy()) <= 1 and (all_classes or specific_class):
+                    class_lst = class_lst.numpy()
+                    class_lst *= ((128 / 4) - 1) # values range from 0 to 1. to values range from 0 to 31, stored efficiently as GDT_Byte, saving disk space
+                    class_lst = np.around(class_lst).astype(np.int8)
+                    dtype = gdal.GDT_Byte
+                    store_tif(output_folder / os.path.basename(tiles[i]), class_lst, dtype, geotrans, geoproj,
+                              None, class_zero)
 
-            # 🔍 List logged artifacts for confirmation
-            client = MlflowClient()
-            artifacts = client.list_artifacts(mlflow.active_run().info.run_id, artifact_path)
-            print("🔍 Artifacts in 'models/':", [a.path for a in artifacts])
+                else:
+                    store_tif(output_folder / os.path.basename(tiles[i]), class_lst.numpy(), dtype, geotrans,
+                              geoproj, None, class_zero)
 
-        except Exception as e:
-            print(f" Error during MLflow model logging: {e}")
-            try:
-                learn.export(model_path)
-                print(f" Model fallback exported to: {model_path}")
-            except Exception as export_error:
-                print(f" Failed to export model fallback: {export_error}")
-    finally:
-        if mlflow.active_run():
-            print(f" Ending MLflow run: {mlflow.active_run().info.run_id}")
-            mlflow.end_run()
+        if validation_vision:
+            cm, class_report, cm_path, class_report_path = plot_valid_predict(output_folder, predict_path, regression,
+                                                                              merge, class_zero)
+
+            #  Log metrics
+            mlflow.log_metric("accuracy",
+                              class_report.get("accuracy", class_report.get("weighted avg", {}).get("precision", 0)))
+            mlflow.log_metric("precision", class_report["weighted avg"]["precision"])
+            mlflow.log_metric("recall", class_report["weighted avg"]["recall"])
+            mlflow.log_metric("f1_score", class_report["weighted avg"]["f1-score"])
+
+            #  Save evaluation results as CSV
+            eval_results_df = pd.DataFrame({
+                "metric": ["accuracy", "precision", "recall", "f1_score"],
+                "value": [
+                    class_report.get("accuracy", 0),
+                    class_report["weighted avg"]["precision"],
+                    class_report["weighted avg"]["recall"],
+                    class_report["weighted avg"]["f1-score"]
+                ]
+            })
+            eval_results_csv = os.path.join(output_folder, "unet_evaluation_results.csv")
+            eval_results_df.to_csv(eval_results_csv, index=False)
+
+            #  Upload all to MLflow (MinIO)
+            for f in [eval_results_csv, cm_path, class_report_path]:
+                if os.path.exists(f):
+                    mlflow.log_artifact(f, artifact_path="predictions")  # optional: "predictions" subfolder
+                    print(f" Logged artifact to MLflow: {Path(f).name}")
+                else:
+                    print(f" File not found: {f}")
+
+        if merge:
+            # go through the information for all tiles, find upper left most corner and lower right most corner
+            # --> these define the extend of the final output
+            # remember: lower left to upper right
+            geotrans_for_merge = np.array(geotrans_for_merge)
+            upleft_x_full = np.min(geotrans_for_merge[:, 0])
+            upleft_y_full = np.max(geotrans_for_merge[:, 3])
+            xmax_raster = np.argmax(geotrans_for_merge[:, 0])
+            ymin_raster = np.argmin(geotrans_for_merge[:, 3])
+            # calculate coordinate from array index
+            lowright_x_full = np.max(geotrans_for_merge[:, 0]) + geotrans_for_merge[
+                xmax_raster, 1] * geotrans_for_merge[xmax_raster, 2]
+            lowright_y_full = np.min(geotrans_for_merge[:, 3]) + geotrans_for_merge[
+                ymin_raster, 4] * geotrans_for_merge[ymin_raster, 5]
+
+            if len(set(geotrans_for_merge[:, 1])) != 1 or len(set(geotrans_for_merge[:, 4])) != 1:
+                warnings.warn("Not all tiles have the same resolution.")
+
+            x_length = (round((lowright_x_full - upleft_x_full) / geotrans_for_merge[0, 2]))
+            y_length = (round((lowright_y_full - upleft_y_full) / geotrans_for_merge[0, 5]))
+
+            if large_file:
+                dty = np.int8
+            else:
+                dty = np.float32
+
+            # create array to contain raster data
+            merged_raster = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length), dtype=dty)
+            print(f'True merged raster size: {merged_raster.nbytes / (1024 ** 2): .1f}MB.')
+            # create array to contain if pixel is the sum of 1, 2, or 4 tiles
+            # (1 - single tile, 2 - two overlapping edges, 4 - overlapping corners)
+            merge_counter = np.zeros((predictions_for_merge[0].shape[0], y_length, x_length),
+                                     dtype=np.int8)
+
+            # for each image
+            for i, (pred, geotrans) in enumerate(zip(predictions_for_merge, geotrans_for_merge)):
+                # find location
+                upleft_x = round((geotrans[0] - upleft_x_full) / geotrans[2])
+                upleft_y = round((geotrans[3] - upleft_y_full) / geotrans[5])
+                lowright_x = round((geotrans[0] + geotrans[1] * geotrans[2] - upleft_x_full) / geotrans[2])
+                lowright_y = round((geotrans[3] + geotrans[4] * geotrans[5] - upleft_y_full) / geotrans[5])
+
+                # place raster
+                merged_raster[:, upleft_y:lowright_y, upleft_x:lowright_x] += pred
+                # increase counter for placed rasters
+                merge_counter[:, upleft_y:lowright_y, upleft_x:lowright_x] += np.ones_like(pred, dtype=np.int8)
+
+                # delete tile to use less space
+                predictions_for_merge[i] = []
+
+            if regression:
+                merged_raster = merged_raster[0]
+                merge_counter = merge_counter[0]
+
+                # divide raster by counter to turn overlaps into realistic values
+                merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
+
+                # set raster to -9999 where no predictions were placed
+                nodata = -9999
+                merged_raster[merge_counter == 0] = nodata  # maybe change to merged_raster[merged_raster == 0] = nodata
+            else:
+                if large_file:
+
+                    # Create a mask that is True where merge_counter is positive - uses less space than [condition] indexing (?)
+                    mask = merge_counter > 0
+                    # Apply the mask to both arrays and perform the division
+                    merged_raster[mask] //= merge_counter[mask]
+
+                else:
+                    merged_raster[merge_counter > 0] /= merge_counter[merge_counter > 0]
+
+                # divide raster by counter to turn overlaps into realistic values
+                if all_classes:
+                    pass
+                elif specific_class is None:
+                    # for decoded argmax value
+                    # merged_raster = np.where(merged_raster.max(axis=0) < 0.1, 14, merged_raster.argmax(axis=0)) #check if this is still relevant?
+                    merged_raster = merged_raster.argmax(axis=0)
+                else:
+                    # for probabilities of specific class [1] -> klasse 1
+                    merged_raster = merged_raster[specific_class]
+
+                # define nodata for classification (either background class or where no Tiles were placed)
+                nodata = None
+
+            if "float" in str(merged_raster.dtype):
+                dtype = gdal.GDT_Float32
+            else:
+                dtype = gdal.GDT_Byte
+
+            # Define the parameters for the name of output:
+            output_file_name_parts = [AOI, year, model_name, "prediction"]
+            output_file_name = "_".join(filter(None, output_file_name_parts)) + ".tif"
+            output_file = output_folder / output_file_name
+            print(output_file)
+
+            store_tif(output_file, merged_raster, dtype,
+                      [upleft_x_full, geotrans_for_merge[0, 2], 0.0, upleft_y_full, 0.0, geotrans_for_merge[0, 5]],
+                      geoproj_for_merge, nodata, class_zero)
+
+            print(f"Prediction stored in {output_folder}.")
