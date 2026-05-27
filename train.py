@@ -43,35 +43,6 @@ from fastai.torch_core import params, to_device, apply_init
 from fastcore.basics import risinstance, defaults, ifnone, store_attr
 from fastcore.foundation import L
 
-def log_metrics_mlflow(hist_path, monitor):
-    """
-    Logs training metrics (train_loss, valid_loss, dice_multi) from history CSV to MLflow.
-
-    Parameters:
-    - hist_path (Path): Path to the training history CSV.
-    - monitor (str): The primary metric to monitor (e.g., "valid_loss", "dice_multi").
-    """
-    if not hist_path.exists():
-        print(f" Warning: Metrics file not found at {hist_path}")
-        return
-
-    #  Read the training history
-    hist = pd.read_csv(hist_path)
-
-    #  Log metrics for each epoch
-    for epoch, row in hist.iterrows():
-        mlflow.log_metric("train_loss", row["train_loss"], step=epoch)
-        mlflow.log_metric("valid_loss", row["valid_loss"], step=epoch)
-        mlflow.log_metric("dice_multi", row["dice_multi"], step=epoch)
-
-        #  Log primary monitoring metric separately (for MLflow visualization)
-        if monitor in row:
-            mlflow.log_metric(monitor, row[monitor], step=epoch)
-
-    print(f" Metrics logged to MLflow from {hist_path}")
-
-
-
 
 def log_metrics_mlflow(hist_path, monitor):
     """
@@ -404,10 +375,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     learn.recorder.plot_loss()
     # move history
     hist_path = Path(path.with_stem(path.stem + "_history").with_suffix(".csv"))
-<<<<<<< HEAD
-=======
 
->>>>>>> new_features_2
     # os.rename(learn.path / learn.csv_logger.fname, hist_path)
     shutil.move(learn.path / learn.csv_logger.fname, hist_path)
     learn.remove_cb(CSVLogger)
@@ -433,11 +401,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
     plt.ylabel('Loss')
     plt.title('Model Training Overview')
     plt.legend()
-<<<<<<< HEAD
-    loss_plot_path = str(hist_path).rsplit('.', 1)[0] + '_loss_plot.png'
-=======
     loss_plot_path = hist_path.with_name(hist_path.stem + "_loss_plot.png")
->>>>>>> new_features_2
     plt.savefig(loss_plot_path, dpi=200)
     plt.close()  #  Free memory
 
@@ -447,11 +411,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-<<<<<<< HEAD
-               class_zero, register_model):
-=======
-               class_zero, register_model, attention_gates, exclude_height_from_color_aug= False):
->>>>>>> new_features_2
+               class_zero, register_model, attention_gates):
     try:
         pc_name = socket.gethostname()
         #  Check if an MLflow run
@@ -476,11 +436,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                 n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
                 print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
                 # Use the imported aug_pipe
-<<<<<<< HEAD
                 transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
-=======
-                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx, exclude_height_from_color_aug = exclude_height_from_color_aug)
->>>>>>> new_features_2
             else:
                 # Define a default augmentation pipeline
                 aug_pipe = A.Compose([
@@ -505,11 +461,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                                     loss_func=loss_func, self_attention=self_attention, monitor=monitor,
                                     VALID_SCENES=VALID_SCENES,
                                     ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
-<<<<<<< HEAD
-                                    class_zero=class_zero)
-=======
                                     class_zero=class_zero, attention_gates=attention_gates)
->>>>>>> new_features_2
             # Structure the parameters dictionary like the JSON file
             params_dict = {
                 "data_path": str(data_path),
@@ -534,11 +486,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                 "resolution": str(resolution),
                 "data_type": dtype,
                 "number_of_bands": str(number_of_bands),
-<<<<<<< HEAD
-                "aug_params_": aug_pipe,
-=======
                 "aug_params_": str(aug_pipe),
->>>>>>> new_features_2
                 "Percentage of augmented images": n_transform_imgs,
                 "class_zero": class_zero
             }
@@ -582,86 +530,6 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
         # Prepare inputs for logging (move to CPU and detach)
         sample_input = inputs.cpu().detach()
         sample_output = targets.cpu().detach()
-<<<<<<< HEAD
-
-        # Infer the input/output schema
-        signature = infer_signature(sample_input.numpy(), sample_output.numpy())
-        input_example = sample_input.numpy()
-
-        if visualize_data_example:
-            inputs_np = inputs.cpu().detach().numpy()
-            targets_np = targets.cpu().detach().numpy()
-            visualize_data(inputs_np, model_path)
-            os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
-            visualize_data(targets_np, model_path)
-            os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
-
-        print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
-        # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
-        print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
-        print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
-
-        if enable_regression:
-            print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
-        else:
-            print(f"Class weights: {CLASS_WEIGHTS}")
-
-        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
-                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
-                           regression=enable_regression, loss_func=loss_func, monitor=monitor,
-                           existing_model=existing_model, self_attention=self_attention,
-                           export_model_summary=export_model_summary)
-
-        # Call `log_metrics_mlflow()` to log metrics to MLflow
-        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
-        log_metrics_mlflow(hist_path, monitor)
-
-        #  Define relative artifact path inside MLflow run
-        artifact_path = "models"
-
-        try:
-            #  Log the model to MLflow (register or just log)
-            if register_model:
-                mlflow.pytorch.log_model(
-                    learn.model,
-                    artifact_path=artifact_path,
-                    registered_model_name=description,
-                    signature=signature,
-                    input_example=input_example
-                )
-                print(f" Model Registered in MLflow under name: {description}")
-            else:
-                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path, signature=signature, input_example=input_example)
-                print(" Model Logged to MLflow (but NOT registered)")
-
-            #  Export model locally
-            learn.export(model_path)
-            print(f" Training Completed! Model saved at: {model_path}")
-
-            #  Log all files in new_path as artifacts
-            for file in os.listdir(new_path):
-                src_file = os.path.join(new_path, file)
-                if os.path.isfile(src_file):
-                    mlflow.log_artifact(src_file)
-                    print(f" Logged artifact: {file}")
-
-            # 🔍 List logged artifacts for confirmation
-            client = MlflowClient()
-            artifacts = client.list_artifacts(mlflow.active_run().info.run_id, artifact_path)
-            print("🔍 Artifacts in 'models/':", [a.path for a in artifacts])
-
-        except Exception as e:
-            print(f" Error during MLflow model logging: {e}")
-            try:
-                learn.export(model_path)
-                print(f" Model fallback exported to: {model_path}")
-            except Exception as export_error:
-                print(f" Failed to export model fallback: {export_error}")
-    finally:
-        if mlflow.active_run():
-            print(f" Ending MLflow run: {mlflow.active_run().info.run_id}")
-            mlflow.end_run()
-=======
 
         # Infer the input/output schema
         signature = infer_signature(sample_input.numpy(), sample_output.numpy())
@@ -745,4 +613,3 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
             except Exception as e:
                 print(f" MLflow end_run failed (ignored): {e}")
 
->>>>>>> new_features_2
