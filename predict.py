@@ -33,15 +33,6 @@ def load_fastai_model_flexible(model_uri):
     Returns:
         Learner object loaded via fastai.
     """
-    if model_uri.startswith("mlflow-artifacts:/") or model_uri.startswith("runs:/"):
-        print(f" Downloading model artifact from MLflow: {model_uri}")
-        local_path = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
-        return load_learner(local_path)
-    elif Path(model_uri).exists():
-        print(f" Loading model from local path: {model_uri}")
-        return load_learner(model_uri)
-    else:
-        raise ValueError(f" Unsupported or non-existent model path: {model_uri}")
 
     # Save the original PosixPath to restore it later
     temp = pathlib.PosixPath
