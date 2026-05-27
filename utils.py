@@ -1,544 +1,521 @@
-import glob
 import os
 import warnings
-import matplotlib.pyplot as plt
 import numpy as np
-from pathlib import Path
-import json
+import pandas as pd
+import matplotlib.pyplot as plt
 import math
-import re
+import shutil
+import mlflow.pytorch
+import socket
+import sys
+import shutil
+import tempfile
 import mlflow
-import tifffile
+from mlflow.tracking import MlflowClient
+from mlflow.models import infer_signature
+from torch import nn, Tensor
+import json
+from pathlib import Path
+from typing import Optional
+import albumentations as A
 
-from torch import nn
-import torch
+from data import create_data_block
+from utils import annot_min, find_lr, get_datatype, get_class_weights, visualize_data, \
+    SegmentationAlbumentationsTransform, process_and_save_params, get_image_metadata
 
-from fastai.losses import BaseLoss
-from fastai.data.transforms import get_image_files
-from fastai.vision.core import PILMask
-from fastai.callback.schedule import minimum, steep, valley, slide
+import fastai.vision.models as models
+from fastai.vision.core import imagenet_stats
+from fastai.vision.learner import model_meta, create_body
+
+from fastai.layers import NormType
+from fastai.learner import Learner
+from fastai.learner import load_learner
+from fastai.losses import MSELossFlat, CrossEntropyLossFlat, L1LossFlat, FocalLossFlat
+from fastai.metrics import rmse, R2Score, DiceMulti, foreground_acc
+from fastai.optimizer import Adam
+
+from fastai.callback.progress import CSVLogger
+from fastai.callback.tracker import SaveModelCallback
+from fastai.data.transforms import Normalize
+from fastai.torch_core import params, to_device, apply_init
+
+from fastcore.basics import risinstance, defaults, ifnone
 from fastcore.foundation import L
-from fastai.vision.all import ItemTransform, TensorImage, TensorMask
 
-from osgeo import gdal, gdal_array
-
-
-def get_image_tiles(path: Path, ) -> L:
-    """Returns a list of the image tile filenames in path"""
-    files = L()
-    for folder in path.ls():
-        folder = folder
-        files.extend(get_image_files(path=folder, folders='img_tiles'))
-    return files
-
-
-def get_y_fn(fn: Path) -> str:
-    """Returns filename of the associated mask tile for a given image tile"""
-    return str(fn).replace('img_tiles', 'mask_tiles')
-
-
-def load_gdal(path):
-    """Loads an image file from path using gdal."""
-    img_ds = gdal.Open(path, gdal.GA_ReadOnly)
-    img = np.zeros((img_ds.RasterYSize, img_ds.RasterXSize, img_ds.RasterCount),
-                   gdal_array.GDALTypeCodeToNumericTypeCode(img_ds.GetRasterBand(1).DataType))
-
-    for b in range(img.shape[2]):
-        img[:, :, b] = img_ds.GetRasterBand(b + 1).ReadAsArray()
-
-    return img
-
-
-def get_y(fn: Path):
-    """Returns a PILMask object of 0s and 1s for a given tile"""
-    fn = get_y_fn(fn)
-    msk2 = load_gdal(fn)[:, :, 0]
-    return PILMask.create(msk2)
-
-
-def annot_min(y, ax=None):
-    """Adds an arrow for the lowest loss within a plot to a plot"""
-    xmin = np.argmin(y)
-    ymin = np.min(y)
-    text = f"Lowest Loss={ymin:.2f}, Ep. {xmin}"
-    if not ax:
-        ax = plt.gca()
-    bbox_props = dict(boxstyle="square,pad=0.3", fc="w", ec="k", lw=0.72)
-    arrowprops = dict(arrowstyle="->", connectionstyle="angle,angleA=0,angleB=120")
-    kw = dict(xycoords='data', textcoords="axes fraction",
-              arrowprops=arrowprops, bbox=bbox_props, ha="left", va="top")
-    ax.annotate(text, xy=(xmin, ymin), xytext=(0.06, 0.96), **kw)
-
-
-def get_datatype(path):
-    """Gets the largest datatype of all images within a directory"""
-    file = glob.glob(str(path /'trai/img_tiles/*.tif'))[0]
-    img_ds = gdal.Open(file, gdal.GA_ReadOnly)
-    img = np.zeros((img_ds.RasterYSize, img_ds.RasterXSize, img_ds.RasterCount),
-                   gdal_array.GDALTypeCodeToNumericTypeCode(img_ds.GetRasterBand(1).DataType))
-
-    for b in range(img.shape[2]):
-        img[:, :, b] = img_ds.GetRasterBand(b + 1).ReadAsArray()
-
-    no_data = img_ds.GetRasterBand(1).GetNoDataValue()
-    max_val = np.max(img[img[:, :, 0] != no_data])
-    if max_val < 257:
-        print('Data in int8')
-        return 'int8'
-    else:
-        print('Data in int16')
-        return 'int16'
-
-
-def is_outlier(points, thresh=3.5):
-    """Returns a boolean array with True if points are outliers and False otherwise."""
-    if len(points.shape) == 1:
-        points = points[:, None]
-    median = np.median(points, axis=0)
-    diff = np.sum((points - median) ** 2, axis=-1)
-    diff = np.sqrt(diff)
-    med_abs_deviation = np.median(diff)
-
-    modified_z_score = 0.6745 * diff / med_abs_deviation
-
-    return modified_z_score > thresh
-
-
-def get_class_weights(path, tiles):
-    """Creates class weights inversely proportional to the amount of class-counts in the dataset."""
-    msk_files = path / "trai/mask_tiles"
-    dls = tiles.dataloaders(path, bs=np.min([len(list(msk_files.glob('*.tif'))), 1200]), num_workers=0)
-    count_tensor = dls.one_batch()[1].unique(return_counts=True)[1]
-    total_samples = sum(count_tensor)  # Total number of samples in the dataset
-    class_w = []
-    for count in count_tensor:
-        class_weight = total_samples.item() / count.item()
-        class_w.append(class_weight)
-
-    return class_w
-
-
-def visualize_data(inputs, model_path):
-    """Plots a detailed histogram of the data bands"""
-    if len(inputs.shape) != 3:
-        inputs_bands = inputs.shape[1]
-    else:
-        inputs_bands = 1
-    fig, axes = plt.subplots(nrows=2, ncols=inputs_bands, sharey='row', figsize=(10, 10))
-    if inputs_bands > 1:
-        for band in range(inputs_bands):
-            band_data = inputs[:, band].flatten()
-            axes[0, band].hist(band_data[band_data > 0], bins=255)
-            axes[0, band].set_title(f'Band {band + 1}')
-            axes[1, band].hist(band_data[band_data > 0], bins=255, range=(0, 1))
-        plt.suptitle('Image batch example histogram')
-        plt.savefig(Path(str(model_path).rsplit('.', 1)[0] + "_image_plot.png"))
-
-
-    else:
-        inputs = inputs.flatten()
-        axes[0].hist(inputs, bins=255)
-        axes[1].hist(inputs, bins=255, range=(0, 1))
-        plt.suptitle('Mask batch example histogram')
-        plt.savefig(Path(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png"))
-
-
-def Smoothl1(*args, axis=1, floatify=True, **kwargs):
-    """Same as 'nn.L1Loss', but flattens input and target."""
-    return BaseLoss(nn.SmoothL1Loss, *args, axis=axis, floatify=floatify, is_2d=False, beta=0.5, **kwargs)
-
-
-def find_lr(learn, finder):
-    """Finds the suggested maximum learning rate using a fastai learning rate finder"""
-    lrs = learn.lr_find(suggest_funcs=(minimum, steep, valley, slide), show_plot=True)
-    # plt.show()
-    if finder == 'valley':
-        lr_max = lrs.valley
-    elif finder == 'slide':
-        lr_max = lrs.slide
-    elif finder == 'steep':
-        lr_max = lrs.steep
-    elif finder == 'minimum':
-        lr_max = lrs.minimum
-    else:
-        lr_max = lrs.valley
-        warnings.warn("Learning rate finder parameter not recognised (minimum, steep, valley, slide, None)."
-                      " Using valley.")
-
-    return lr_max
-
-
-def check_and_fill(args, target_len):
+def log_metrics_mlflow(hist_path, monitor):
     """
-    Ensure that all argument lists match the target length by repeating their single element if necessary.
-
-    This function iterates through a list of argument lists (args) and checks each one against the target length (target_len).
-    If an argument list has exactly one element, it is repeated to match the target length. If an argument list does not match
-    the target length and has more than one element, a ValueError is raised to indicate a configuration error.
+    Logs training metrics (train_loss, valid_loss, dice_multi) from history CSV to MLflow.
 
     Parameters:
-    - args: A list of lists. Each inner list corresponds to an argument that might need adjustment.
-    - target_len: The target length that all argument lists should match.
-
-    Returns:
-    - A list of lists, where each inner list has been adjusted to match the target length or is left as is if it already matches.
-
-    Raises:
-    - ValueError: If an argument list has more than one element but does not match the target length.
+    - hist_path (Path): Path to the training history CSV.
+    - monitor (str): The primary metric to monitor (e.g., "valid_loss", "dice_multi").
     """
-    for i, arg in enumerate(args):
-        if len(arg) == 1:
-            args[i] = arg * target_len
-        elif len(arg) != target_len:
-            raise ValueError(f"Argument list at index {i} has {len(arg)} elements; expected {target_len}.")
-    return args
+    if not hist_path.exists():
+        print(f" Warning: Metrics file not found at {hist_path}")
+        return
 
-class SegmentationAlbumentationsTransform(ItemTransform):
-    """Applies Albumentations augmentations to images and optionally masks.
+    #  Read the training history
+    hist = pd.read_csv(hist_path)
 
-    Args:
-        aug (callable): Albumentations augmentation function.
-    Note:
-        This transform expects input data in the form of tuples (image, mask).
-        If only images are provided, it assumes no masks are present.
+    #  Log metrics for each epoch
+    for epoch, row in hist.iterrows():
+        mlflow.log_metric("train_loss", row["train_loss"], step=epoch)
+        mlflow.log_metric("valid_loss", row["valid_loss"], step=epoch)
+        mlflow.log_metric("dice_multi", row["dice_multi"], step=epoch)
+
+        #  Log primary monitoring metric separately (for MLflow visualization)
+        if monitor in row:
+            mlflow.log_metric(monitor, row[monitor], step=epoch)
+
+    print(f" Metrics logged to MLflow from {hist_path}")
+
+
+
+
+def load_split_raster_params(json_path):
     """
-<<<<<<< HEAD
-    def __init__(self, dtype, aug, n_transform_imgs=2, split_idx= 0, **kwargs):
-
-=======
-
-    def __init__(self, dtype, aug, n_transform_imgs=2, split_idx=0, exclude_height_from_color_aug =False, **kwargs):
->>>>>>> new_features_2
-        """
-        Initializes the SegmentationAlbumentationsTransform.
-
-        Args:
-            aug (callable): Albumentations augmentation function.
-            n_transform_imgs (int): Number of the augmented images minus from the batch size (default is 2).
-        """
-        super().__init__(**kwargs)
-        self.aug = aug
-        self.n_transform_imgs = n_transform_imgs
-        self.dtype = dtype
-        self.split_idx = split_idx
-        self.exclude_height_from_color_aug  = exclude_height_from_color_aug
-
-    def encodes(self, x):
-        """
-        Applies albumentations augmentations to input images and masks.
-
-        Args:
-            x (tuple or Tensor): Input data containing images and masks.
-
-        Returns:
-            Tensor or tuple of Tensors: Transformed images and masks (if provided).
-        """
-        try:
-            batch_img, batch_mask = x  # Expecting tuple (img, mask)
-        except ValueError:
-            batch_img = x  # Only one value is provided, assuming it's just the image
-            batch_mask = None  # No mask provided
-            # Check if n_transform_imgs is greater than or equal to the batch size
-        if not (0 <= self.n_transform_imgs <= 1):
-            raise ValueError(
-                f"The n_transform_imgs parameter ({self.n_transform_imgs}) must be between 1 and 0.")
-
-        Batch = len(batch_img)
-        n_transform = math.ceil(Batch * self.n_transform_imgs)
-
-        transformed_images = []
-        transformed_masks = []
-
-        if batch_mask is None:
-            batch_img = batch_img[0]
-
-            if self.dtype == 'int16':
-                batch_img /= 255
-
-            return [batch_img]
-
-        # Process each image and mask in the last proportion of the batch
-        else:
-            for img, mask in zip(batch_img[:int(n_transform - len(batch_img))],
-                                 batch_mask[:int(n_transform - len(batch_img))]):
-                # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
-                img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
-
-                # Separate RGB and nDom channels
-                if self.exclude_height_from_color_aug:
-                    print("Height data available, Aug just 4 classes")
-                    # Separate last band as height
-                    img_rgb = img[:, :, :-1]
-                    height_img = img[:, :, -1:]
-                else:
-                    # Use all bands for augmentation
-                    img_rgb = img
-                    height_img = None
-
-                # Ensure tensor is on CPU before converting to numpy array
-                img_np = img_rgb.cpu().numpy()  # Only convert RGB channels to numpy
-                mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
-
-                # Normalize image based on dtype
-                if self.dtype == 'int16':
-                    img_np /= 65535
-                elif self.dtype == 'int8':
-                    img_np /= 255
-                else:
-                    raise ValueError("The data_type should be int8 or int16, your data is not valid")
-
-                # Apply augmentation
-                aug = self.aug(image=img_np, mask=mask_np)
-
-                # After augmentation, return to Uint8 Image for the Dataloader
-                aug['image'] *= 255
-
-                # After augmentation, transpose image back to [C, H, W]
-                img_aug = np.transpose(aug['image'], (2, 0, 1))  # Shape: [C, H, W]
-                mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
-
-                if height_img is not None:
-                    # Directly permute ndom_img (no need to convert to numpy and back)
-                    ndom_img = height_img.permute(2, 0, 1)  # Convert to [C, H, W] for nDom channel
-
-                    # Ensure both tensors are on the same device (GPU or CPU)
-                    img_aug_tensor = torch.from_numpy(img_aug).to(img.device)  # Move img_aug to the same device as img
-                    ndom_img_tensor = ndom_img.to(img.device)  # Move ndom_img to the same device as img
-
-                    # Now concatenate them on the same device
-                    final_img = torch.cat((img_aug_tensor, ndom_img_tensor),
-                                          dim=0)  # Combine RGB and nDom along the channel dimension
-                else:
-
-                    final_img = torch.from_numpy(img_aug).to(img.device)
-
-                # Convert augmented images and masks back to tensors and append to the transformed lists
-                transformed_images.append(TensorImage(final_img.to(img.device)))  # Ensure the device is correct
-                transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
-
-        # Leave the first proportion of the batch unchanged
-        for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
-                             batch_mask[int(n_transform - len(batch_img)):]):
-            if self.dtype == 'int16':
-                img /= 255
-
-            # Append the unchanged images and masks to the transformed lists
-            transformed_images.append(img)
-            transformed_masks.append(mask)
-        # Stack all processed items in the batch back into tensors
-        return torch.stack(transformed_images), torch.stack(transformed_masks)
-
-
-def save_params(params, model_Path, description):
-    """
-    Save parameters to a JSON file.
-
-    Parameters:
-    - params (dict): Dictionary of parameters to save.
-    - description (str): Description to be used as the folder and file name.
-    """
-
-    def default_converter(o):
-        if isinstance(o, (int, float, str, bool, type(None))):
-            return o
-        return str(o)
-
-    # Path to save the JSON file
-    json_path = Path(model_Path) / f"{description}.json"
-
-    with open(json_path, 'w') as json_file:
-        json.dump(params, json_file, indent=4, default=default_converter)
-    print(f'Parameters saved to {json_path}')
-
-
-def get_patch_size(base_dir):
-    base_dir = Path(base_dir)
-    base_dir = base_dir / "trai" / "img_tiles"
-
-    # List all files in the directory
-    files = [f for f in os.listdir(base_dir) if f.endswith('.tif')]
-
-    if not files:
-        raise ValueError("No .tif files found in the directory")
-
-    # Open the first file to get the size, resolution, and data type
-    file_path = base_dir / files[0]
-    with tifffile.TiffFile(file_path) as tif:
-        # Get image size
-        width, height = tif.pages[0].shape[:2]
-
-        # Attempt to get resolution from ModelPixelScaleTag if available
-        resolution = None
-        try:
-            model_pixel_scale_tag = tif.pages[0].tags['ModelPixelScaleTag'].value
-            resolution = (model_pixel_scale_tag[0], model_pixel_scale_tag[1])
-        except KeyError:
-            pass
-
-        # If ModelPixelScaleTag is not found, use the default or any other available tags
-        if resolution is None:
-            for tag_name in ['XResolution', 'YResolution', 'Pixel Size']:
-                try:
-                    res_value = tif.pages[0].tags[tag_name].value
-                    if isinstance(res_value, tuple) or isinstance(res_value, list):
-                        resolution = (res_value[0], res_value[1])
-                    else:
-                        resolution = res_value
-                    break
-                except KeyError:
-                    continue
-
-        # Get data type
-        data_type = tif.pages[0].dtype
-
-        # Get number of bands
-        number_of_bands = tif.pages[0].samplesperpixel
-
-    return width, resolution, data_type, number_of_bands
-
-
-def process_and_save_params(data_path, aug_pipe, model_path, description, transforms=False, **kwargs):
-    """
-    Process and save parameters to a JSON file.
-
-    Parameters:
-    - data_path (str): Path to the data.
-    - aug_pipe (object): Augmentation pipeline.
-    - model_path (str): Path to save the model parameters.
-    - description (str): Description to be used as the folder and file name.
-    - kwargs: Additional parameters to be processed.
-    """
-
-    # Extract patch size from the img path
-    patch_size, resolution, data_type, number_of_bands = get_patch_size(data_path)
-
-    # Extract the augmentation parameters
-    aug_params_ = {transform.__class__.__name__: transform.p for transform in aug_pipe.transforms}
-
-    # Capture parameters using locals()
-    params = locals()
-    params['patch_size'] = patch_size
-    params['resolution'] = resolution
-    params['data_type'] = data_type
-    params['number_of_bands'] = number_of_bands
-    params['aug_params_'] = aug_params_
-    # Remove specific keys from params
-    for key in ['data_path', 'aug_pipe', 'model_path', 'description']:
-        params.pop(key, None)
-
-    # Conditionally delete specific keys
-    if not transforms:
-        params.pop('aug_params_', None)
-        # Remove specific keys from kwargs if necessary
-        kwargs.pop('n_transform_imgs', None)
-
-    # Ensure 'transforms' is set to True if it is supposed to be
-    if transforms:
-        params['transforms'] = True
-
-    # Keys to delete
-    keys_to_delete = ['BATCH_SIZE', 'EPOCHS', 'regression', 'LEARNING_RATE', 'LR_FINDER', 'ENCODER_FACTOR', 'loss_func',
-                      'self_attention', 'monitor', 'ARCHITECTURE', 'CODES']
-
-    # Delete the keys
-    for key in keys_to_delete:
-        if key in params:
-            del params[key]
-
-    def default_converter(o):
-        if isinstance(o, (int, float, str, bool, type(None))):
-            return o
-        return str(o)
-
-    # Convert the parameters dictionary to a JSON string
-    json_string = json.dumps(params, indent=4, default=default_converter)
-
-    formatted_json_string = re.sub(
-        r'("CODES":\s*\[)([^\]]*)(\])|("VALID_SCENES":\s*\[)([^\]]*)(\])|("resolution":\s*\[)([^\]]*)(\])',
-        lambda
-            m: f'{m.group(1) or m.group(4) or m.group(7)}{" ".join((m.group(2) or m.group(5) or m.group(8)).split())}{m.group(3) or m.group(6) or m.group(9)}',
-        json_string
-    )
-    # Path to save the JSON file
-    json_path = Path(model_path) / f"{description}.json"
-
-    # Save the formatted JSON string to a file
-    with open(json_path, 'w') as json_file:
-        json_file.write(formatted_json_string)
-
-    print(f'Parameters saved to {json_path}')
-
-
-def get_image_metadata(path):
-    """
-    Extracts patch size, resolution, number of bands, and data type
-    from a sample image in the dataset.
+    Load parameters from a JSON file and extract the values.
 
     Parameters:
     -----------
-    - path (Path): Base directory containing the dataset.
+    json_path: Path to the JSON file containing the parameters.
 
     Returns:
     --------
-    - dict: Metadata dictionary with patch size, resolution, number of bands, and data type.
+    params: A dictionary containing the parameters.
     """
-<<<<<<< HEAD
+    if not os.path.exists(json_path):
+        raise FileNotFoundError(f"JSON file not found: {json_path}")
 
-    # ✅ Find a sample image file in 'train' folder (assumed structure)
-    image_files = glob.glob(str(path / r'trai\img_tiles\*.tif'))
-    if not image_files:
-        raise FileNotFoundError(f"No TIFF files found in {path / 'trai/img_tiles/'}")
+    with open(json_path, 'r') as json_file:
+        params = json.load(json_file)
 
-    sample_image = image_files[0]
-
-    #  Open raster using GDAL
-    img_ds = gdal.Open(sample_image, gdal.GA_ReadOnly)
-
-=======
-## new
-    # ✅ Find a sample image file in 'train' folder (assumed structure)
-    img_dir = path / "trai" / "img_tiles"
-    image_files = list(img_dir.glob("*.tif"))
-
-    if not image_files:
-        raise FileNotFoundError(f"No TIFF files found in {img_dir.resolve()}")
-
-    sample_image = image_files[0]
-    img_ds = gdal.Open(str(sample_image), gdal.GA_ReadOnly)
-## new
->>>>>>> new_features_2
-    #  Extract patch size (assuming square images)
-    patch_size = img_ds.RasterXSize  # Assuming width = height
-
-    #  Extract spatial resolution
-    geotransform = img_ds.GetGeoTransform()
-    resolution = [abs(geotransform[1]), abs(geotransform[5])]  # Pixel size in X and Y
-
-    #  Get the number of bands in the dataset
-    number_of_bands = img_ds.RasterCount
-
-    #  Return structured metadata dictionary
-    return patch_size, resolution, number_of_bands
+    return params
 
 
-def backslash_to_forwardslash(input_path):
+def _add_norm(dls, meta, pretrained):
+    """Adds a normalization to a pretrained model."""
+    if not pretrained:
+        return
+    stats = meta.get('stats')
+    if stats is None:
+        return
+    if not dls.after_batch.fs.filter(risinstance(Normalize)):
+        dls.add_tfms([Normalize.from_stats(*stats)], 'after_batch')
+
+
+def default_split(m):
+    """Default split of a model between body and head"""
+    return L(m[0], m[1:]).map(params)
+
+
+def _xresnet_split(m):
+    """Splits XResnet between body and head."""
+    return L(m[0][:3], m[0][3:], m[1:]).map(params)
+
+
+_default_meta = {'cut': None, 'split': default_split}
+_xresnet_meta = {'cut': -4, 'split': _xresnet_split, 'stats': imagenet_stats}
+
+
+class Learner_adjust(Learner):
+    """Edits the fastai Learner predict function to work with regression output."""
+
+    def predict(self, item, rm_type_tfms=None, with_input=False):
+        """Only contains the data-handling necessary to return regression outputs."""
+        dl = self.dls.test_dl([Path(item)], rm_type_tfms=rm_type_tfms, num_workers=0)
+        _, preds, _, dec_preds = self.get_preds(dl=dl, with_input=True, with_decoded=True)
+        res = dec_preds[0], preds[0]
+        return res
+
+
+def unet_learner_MS(dls, arch, pretrained=True,
+                    # learner args
+                    loss_func=None, norm_type: Optional[NormType] = NormType, opt_func=Adam, lr=defaults.lr,
+                    splitter=None, cbs=None, metrics=None, path=None,
+                    model_dir='models', wd=None, wd_bn_bias=False, train_bn=True, moms=(0.95, 0.85, 0.95),
+                    regression=False, self_attention=False):
     """
-    input: path with datatype str
-    output: path as Path-object with forward slashes instead of backslashes
-    """
-    if input_path == None:
-        return None
+    Creates a fastai Unet Learner based on a classification architecture using Dynamic Unet.
+    To allow for more input-bands, the first layer of the classification architecture is removed
+    and replaced with a new convolutional layer.
 
-    if '\\' in input_path:
-        # Windows-Path: replace backslashes with forward slashes
-        corrected_path = input_path.replace('\\', '/')
+    Parameters:
+    -----------
+        dls :       Dataloaders containing the paths to training and validation data
+        arch :      Architecture to use as body for the Unet (e.g. xResNet34)
+        loss_func : Loss function to use during training
+        ...
+
+    Returns:
+    ---------
+        learn :     A fastai Learner class
+
+    References:
+    ----------
+        Based on the unet_learner function in fastai.vision.learner
+    """
+    size = next(iter(dls.train_ds))[0].shape[-2:]
+    n_input_channels = next(iter(dls.train_ds))[0].size(0)
+
+    meta = model_meta.get(arch, _default_meta)
+    body = create_body(arch, pretrained, cut=None)
+
+    prev_layer = body[0][0]
+    body[0][0] = nn.Conv2d(n_input_channels, prev_layer.out_channels,
+                           kernel_size=prev_layer.kernel_size,
+                           stride=prev_layer.stride,
+                           padding=prev_layer.padding,
+                           bias=prev_layer.bias)
+
+    if regression:
+        n_out = 1
     else:
-        # Linux or Mac path
-        corrected_path = input_path
+        n_out = len(dls.vocab)
+    model = to_device(models.unet.DynamicUnet(body, n_out=n_out, img_size=size, blur=True, blur_final=True,
+                                              self_attention=self_attention, y_range=None, norm_type=norm_type,
+                                              last_cross=True,
+                                              bottle=False), dls.device)
 
-    return Path(corrected_path)
+    splitter = ifnone(splitter, meta['split'])
+    if regression:
+        learn = Learner_adjust(dls=dls, model=model, loss_func=loss_func, opt_func=opt_func, lr=lr, splitter=splitter,
+                               cbs=cbs, metrics=metrics, path=path, model_dir=model_dir, wd=wd, wd_bn_bias=wd_bn_bias,
+                               train_bn=train_bn, moms=moms)
+    else:
+        learn = Learner(dls=dls, model=model, loss_func=loss_func, opt_func=opt_func, lr=lr, splitter=splitter, cbs=cbs,
+                        metrics=metrics, path=path, model_dir=model_dir, wd=wd, wd_bn_bias=wd_bn_bias,
+                        train_bn=train_bn, moms=moms)
+    # if pretrained and n_input_channels == 3:
+    #     learn.freeze()
+    #     apply_init(model[2], nn.init.kaiming_normal_)
+    # else:
+    #     apply_init(model, nn.init.kaiming_normal_)
+    return learn
 
-<<<<<<< HEAD
-=======
 
->>>>>>> new_features_2
+def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_factor, lr_finder=None, regression=False,
+               loss_func=None, monitor=None, existing_model=None, self_attention=False, export_model_summary=False):
+    """
+    Takes a created unet_learner and trains the model on data provided within the dataloaders.
+
+    Parameters:
+    -----------
+        class_weights :     Training weights for the different classes
+        dls :               Fastai dataloader containing training and validation data
+        architecture :      Classification body within the Unet
+        epochs :            Training epochs
+        path :              Path for storing training history and plot
+        lr :                Learning rate
+        encoder_factor :    lr / encoder_factor = lower bound of learning rate testing
+        lr_finder :         Which method to use to find an optimal learning rate (default=None)
+        regression :        If training a regression method (default=False -> classification)
+        loss_func :         Which loss function to use (default=None -> MSELossFlat or CrossEntropyLossFlat)
+        monitor :           Which training monitor to use (default=None -> 'valid_loss')
+
+    Returns:
+    ---------
+        learn :             Unet learner now containing a trained model
+    """
+
+    weights = Tensor(class_weights).cuda()
+
+    if regression:
+        if loss_func is None:
+            loss_func = MSELossFlat(axis=1)
+        metrics = [rmse, R2Score()]
+    else:
+        if loss_func is None:
+            loss_func = CrossEntropyLossFlat(axis=1, weight=weights)
+        metrics = [DiceMulti()]
+
+    if regression and monitor is None:
+        monitor = 'r2_score'
+    elif monitor is None:
+        monitor = 'valid_loss'
+
+    if monitor in ['train_loss', 'valid_loss']:
+        comp = np.less
+    else:
+        comp = np.greater
+        if monitor not in ['train_loss', 'valid_loss', 'r2_score', 'dice_multi']:
+            warnings.warn("Monitor not recognised. Assuming maximization.")
+    cbs = [SaveModelCallback(monitor=monitor, comp=comp, fname='best-model'), CSVLogger()]
+
+    loss_func.func.weight = weights
+    # print('weights_tensor: ',loss_func.func.weight)
+
+    if existing_model is None:
+        learn = unet_learner_MS(dls,  # DataLoaders
+                                architecture,  # xResNet34
+                                loss_func=loss_func,  # Weighted cross entropy loss
+                                opt_func=Adam,  # Adam optimizer
+                                metrics=metrics,
+                                cbs=cbs,
+                                regression=regression,
+                                self_attention=self_attention
+                                )
+    else:
+        learn = load_learner(existing_model)
+        learn.dls = dls
+        learn.add_cb(CSVLogger())
+        learn.loss_func = loss_func
+        learn.opt_func = Adam
+
+    # save model summary
+    if export_model_summary:
+        default_stdout = sys.stdout
+        summary_path = Path(path.with_stem(path.stem + "_model_summary").with_suffix(".txt"))
+        sys.stdout = open(summary_path, 'w')
+        print('Class_weights:', class_weights)
+        print(learn.summary())
+        print(learn.model)
+        sys.stdout.close()
+        sys.stdout = default_stdout
+
+    if lr_finder is not None:
+        lr = find_lr(learn, lr_finder)
+        print(f'Optimized learning rate: {lr}')
+
+    learn.unfreeze()
+    learn.fit_one_cycle(
+        epochs,
+        lr_max=slice(lr / encoder_factor, lr)
+    )
+
+    # plot loss
+    learn.recorder.plot_loss()
+    # move history
+    hist_path = Path(path.with_stem(path.stem + "_history").with_suffix(".csv"))
+    # os.rename(learn.path / learn.csv_logger.fname, hist_path)
+    shutil.move(learn.path / learn.csv_logger.fname, hist_path)
+    learn.remove_cb(CSVLogger)
+
+    hist = pd.read_csv(hist_path, header=0, index_col=None)
+    train_loss = hist['train_loss'].tolist()
+    valid_loss = hist['valid_loss'].tolist()
+
+    plt.figure(figsize=(7, 7))
+    # plt.plot(train_loss, label='Training')
+    plt.plot(valid_loss, label='Validation')
+
+    if monitor not in ['train_loss', 'valid_loss']:
+        monitor = hist['train_loss'].tolist()
+        plt.plot(monitor, label='Training')
+        annot_min(monitor)
+        plt.ylim(0, np.max(monitor) * 1.3)
+    else:
+        annot_min(valid_loss)
+        plt.ylim(0, 1.1)
+
+    plt.xlabel('Episode')
+    plt.ylabel('Loss')
+    plt.title('Model Training Overview')
+    plt.legend()
+    loss_plot_path = str(hist_path).rsplit('.', 1)[0] + '_loss_plot.png'
+    plt.savefig(loss_plot_path, dpi=200)
+    plt.close()  #  Free memory
+
+    return learn
+
+### define train function to be able to use for train_multi and new params approach
+def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
+                ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
+               VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
+               class_zero, register_model):
+    try:
+        pc_name = socket.gethostname()
+        #  Check if an MLflow run
+        if mlflow.active_run():
+            print(f" Using existing MLflow run: {mlflow.active_run().info.run_id}")
+        else:
+            mlflow.start_run(run_name=description)
+            print(f" Started MLflow run: {mlflow.active_run().info.run_id}")
+            # Log system or run-level params/tags
+            #mlflow.set_tag("mlflow.source.name", pc_name)
+            mlflow.log_param("pc_name", pc_name)
+
+            # Define Folder which contains "trai" and "vali" folder with "img_tiles" and "mask_tiles"
+            data_path = Path(data_path)
+            # Get datatype of training data
+            print(data_path)
+            dtype = get_datatype(data_path)
+            patch_size, resolution, number_of_bands = get_image_metadata(data_path)
+            if existing_model is not None:
+                existing_model = Path(existing_model)
+            if transforms:
+                n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
+                print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
+                # Use the imported aug_pipe
+                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
+            else:
+                # Define a default augmentation pipeline
+                aug_pipe = A.Compose([
+                    A.NoOp()  # No operation, pass-through transform
+                ])
+                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs)
+
+            # Update new_path to include the 'models' directory and description
+            new_path = Path(model_Path) / description
+
+            # Create the directories if they don't exist
+            new_path.mkdir(parents=True, exist_ok=True)
+
+            # Path to save the model with .pkl extension
+            model_path = new_path / f"{description}.pkl"
+
+            # Save parameters to a JSON file
+            process_and_save_params(data_path, aug_pipe, new_path, description, transforms=transforms, BATCH_SIZE=BATCH_SIZE,
+                                    EPOCHS=EPOCHS, enable_regression=enable_regression,
+                                    LEARNING_RATE=LEARNING_RATE, LR_FINDER=LR_FINDER, ENCODER_FACTOR=ENCODER_FACTOR,
+                                    CLASS_WEIGHTS=CLASS_WEIGHTS,
+                                    loss_func=loss_func, self_attention=self_attention, monitor=monitor,
+                                    VALID_SCENES=VALID_SCENES,
+                                    ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
+                                    class_zero=class_zero)
+            # Structure the parameters dictionary like the JSON file
+            params_dict = {
+                "data_path": str(data_path),
+                "transforms": bool(transforms),
+                "BATCH_SIZE": BATCH_SIZE,
+                "EPOCHS": EPOCHS,
+                "enable_regression": enable_regression,
+                "LEARNING_RATE": LEARNING_RATE,
+                "LR_FINDER": LR_FINDER,
+                "ENCODER_FACTOR": ENCODER_FACTOR,
+                "CLASS_WEIGHTS": CLASS_WEIGHTS,
+                "loss_func": str(loss_func),
+                "self_attention": self_attention,
+                "monitor": monitor,
+                "VALID_SCENES": VALID_SCENES,
+                "ARCHITECTURE": str(ARCHITECTURE),
+                "CODES": CODES,
+                "n_transform_imgs": n_transform_imgs,
+                "info": info,
+                "class_zero": class_zero,
+                "patch_size": str(patch_size),
+                "resolution": str(resolution),
+                "data_type": dtype,
+                "number_of_bands": str(number_of_bands),
+                "aug_params_": aug_pipe,
+                "Percentage of augmented images": n_transform_imgs,
+                "class_zero": class_zero
+            }
+            mlflow.log_params(params_dict)
+
+        # Data Block for Reference Storage
+        db = create_data_block(valid_scenes=VALID_SCENES, codes=CODES, dtype=dtype, regression=enable_regression,
+                               transforms=transforms)
+        if enable_regression:
+            CLASS_WEIGHTS = [1]
+        elif isinstance(CLASS_WEIGHTS, str):
+            if CLASS_WEIGHTS == "even":
+                CLASS_WEIGHTS = np.ones(len(CODES)) / len(CODES)
+            elif CLASS_WEIGHTS == "weighted":
+                CLASS_WEIGHTS = get_class_weights(data_path, db)
+
+
+        dls = db.dataloaders(data_path, bs=BATCH_SIZE, num_workers=0)
+        dls.vocab = CODES
+        # Convert FastAI datasets to DataFrames and log as input
+        try:
+            train_items = dls.train_ds.items if hasattr(dls.train_ds, "items") else None
+            valid_items = dls.valid_ds.items if hasattr(dls.valid_ds, "items") else None
+
+            if isinstance(train_items, (list, tuple, np.ndarray)):
+                train_df = pd.DataFrame(train_items, columns=["train_paths"])
+                dataset_train = mlflow.data.from_pandas(train_df, name="training_dataset")
+                mlflow.log_input(dataset_train, context="training")
+                print(" Training dataset logged to MLflow.")
+
+            if isinstance(valid_items, (list, tuple, np.ndarray)):
+                valid_df = pd.DataFrame(valid_items, columns=["valid_paths"])
+                dataset_valid = mlflow.data.from_pandas(valid_df, name="validation_dataset")
+                mlflow.log_input(dataset_valid, context="validation")
+                print(" Validation dataset logged to MLflow.")
+
+        except Exception as e:
+            print(f" Failed to log datasets to MLflow: {e}")
+
+        inputs, targets = dls.one_batch()
+        # Prepare inputs for logging (move to CPU and detach)
+        sample_input = inputs.cpu().detach()
+        sample_output = targets.cpu().detach()
+
+        # Infer the input/output schema
+        signature = infer_signature(sample_input.numpy(), sample_output.numpy())
+        input_example = sample_input.numpy()
+
+        if visualize_data_example:
+            inputs_np = inputs.cpu().detach().numpy()
+            targets_np = targets.cpu().detach().numpy()
+            visualize_data(inputs_np, model_path)
+            os.system(str(model_path).rsplit('.', 1)[0] + "_image_plot.png")
+            visualize_data(targets_np, model_path)
+            os.system(str(model_path).rsplit('.', 1)[0] + "_mask_plot.png")
+
+        print(f'Train files: {len(dls.train_ds)}, Test files: {len(dls.valid_ds)}')
+        # print(f'Train files data: {dls.train_ds}, Test files data: {dls.valid_ds}')
+        print(f'Input shape: {inputs.shape}, Output shape: {targets.shape}')
+        print(f'Examplary value range INPUT: {inputs[0].min()} to {inputs[0].max()}')
+
+        if enable_regression:
+            print(f'Examplary value range TARGET: {targets[0].min()} to {targets[0].max()}')
+        else:
+            print(f"Class weights: {CLASS_WEIGHTS}")
+
+        learn = train_unet(class_weights=CLASS_WEIGHTS, dls=dls, architecture=ARCHITECTURE, epochs=EPOCHS,
+                           path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
+                           regression=enable_regression, loss_func=loss_func, monitor=monitor,
+                           existing_model=existing_model, self_attention=self_attention,
+                           export_model_summary=export_model_summary)
+
+        # Call `log_metrics_mlflow()` to log metrics to MLflow
+        hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
+        log_metrics_mlflow(hist_path, monitor)
+
+        #  Define relative artifact path inside MLflow run
+        artifact_path = "models"
+
+        try:
+            #  Log the model to MLflow (register or just log)
+            if register_model:
+                mlflow.pytorch.log_model(
+                    learn.model,
+                    artifact_path=artifact_path,
+                    registered_model_name=description,
+                    signature=signature,
+                    input_example=input_example
+                )
+                print(f" Model Registered in MLflow under name: {description}")
+            else:
+                mlflow.pytorch.log_model(learn.model, artifact_path=artifact_path, signature=signature, input_example=input_example)
+                print(" Model Logged to MLflow (but NOT registered)")
+
+            #  Export model locally
+            learn.export(model_path)
+            print(f" Training Completed! Model saved at: {model_path}")
+
+            #  Log all files in new_path as artifacts
+            for file in os.listdir(new_path):
+                src_file = os.path.join(new_path, file)
+                if os.path.isfile(src_file):
+                    mlflow.log_artifact(src_file)
+                    print(f" Logged artifact: {file}")
+
+            # 🔍 List logged artifacts for confirmation
+            client = MlflowClient()
+            artifacts = client.list_artifacts(mlflow.active_run().info.run_id, artifact_path)
+            print("🔍 Artifacts in 'models/':", [a.path for a in artifacts])
+
+        except Exception as e:
+            print(f" Error during MLflow model logging: {e}")
+            try:
+                learn.export(model_path)
+                print(f" Model fallback exported to: {model_path}")
+            except Exception as export_error:
+                print(f" Failed to export model fallback: {export_error}")
+    finally:
+        if mlflow.active_run():
+            print(f" Ending MLflow run: {mlflow.active_run().info.run_id}")
+            mlflow.end_run()
