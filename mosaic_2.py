@@ -172,7 +172,7 @@ def merge_label_tiles_windowed(
 
 
 merge_label_tiles_windowed(
-    r"D:\LUBI_V3\biellefeled\UNet\predicted_tiles_LUBI_V3_1_RGBI_nDOM_Focal_adjust_data_8_classes",
-    r"D:\LUBI_V3\biellefeled\UNet\biellefeled_prediction_LUBI_V3_8_classes.tif",
+    r"Path\to\tiles",
+    r"output\merged_tiles.tif",
     window_px=1024
 )
