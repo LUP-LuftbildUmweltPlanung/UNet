@@ -415,82 +415,6 @@ def create_train_test_split(path, split=None):
 
     delete_folder(Path(source / 'img_tiles'))
     delete_folder(Path(source / 'mask_tiles'))
-<<<<<<< HEAD
-
-
-def save_crop(base_dir, image_name, index, crop, crop_mask, bands_img, rect, geotrans, geoproj, raster_dtype,
-              mask_dtype):
-    """
-    Save window crop as image file to be read by PIL. Filename should match the image_name + window index.
-
-    Parameters:
-    -----------
-        base_dir : Directory in which to store image and mask
-        image_name : Name of the image file
-        index : Index of the image file
-        crop : Cropped image file
-        crop_mask : Cropped corresponding mask (can be None)
-        bands_img : Bands of the image
-        rect : Something necessary for the geotransformation
-        geotrans : Geotransformation data of the image file
-        geoproj : Geoprojection data of the image file
-        raster_dtype : image file datatype
-        mask_dtype : Mask file datatype
-        quantile_stretch : If a 99% quantile stretch should be performed (default=False)
-    """
-    include_mask = crop_mask is not None
-
-    # create dir if needed
-    if include_mask and not os.path.exists(base_dir / "mask_tiles"):
-        os.makedirs(base_dir / "mask_tiles")
-    if not os.path.exists(base_dir / "img_tiles"):
-        os.makedirs(base_dir / "img_tiles")
-    image_basename = os.path.splitext(image_name)[0]
-
-    driver = gdal.GetDriverByName('GTiff')
-    if raster_dtype.endswith("int16"):
-        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir / "img_tiles", image_basename, index), crop.shape[0],
-                               crop.shape[1], bands_img, gdal.GDT_UInt16)
-        raster_dtype_factor = 65536
-    elif raster_dtype.endswith("int8"):
-        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir / "img_tiles", image_basename, index), crop.shape[0],
-                               crop.shape[1], bands_img, gdal.GDT_Byte)
-        raster_dtype_factor = 256
-    elif raster_dtype.endswith("float32"):
-        out_ds = driver.Create("{}/{}_{}.tif".format(base_dir / "img_tiles", image_basename, index), crop.shape[0],
-                               crop.shape[1], bands_img, gdal.GDT_Float32)
-
-    else:
-        print("raster_dtype error:" + str(raster_dtype))
-
-    xmin, ymax, xres, yres = rect
-    out_ds.SetGeoTransform(
-        [xmin * geotrans[1] + geotrans[0], geotrans[1], 0, geotrans[3] - ymax * geotrans[1], 0, geotrans[5], ])
-    out_ds.SetProjection(geoproj)
-    for i in range(bands_img):
-        out_ds.GetRasterBand(i + 1).WriteArray(crop[:, :, i])
-
-    out_ds.FlushCache()
-    del out_ds
-
-    if include_mask:
-        driver2 = gdal.GetDriverByName('GTiff')
-        if "float" in mask_dtype:
-            out_ds2 = driver2.Create("{}/{}_{}.tif".format(base_dir / "mask_tiles", image_basename, index),
-                                     crop_mask.shape[0], crop_mask.shape[1], 1, gdal.GDT_Float32)
-        else:
-            out_ds2 = driver2.Create("{}/{}_{}.tif".format(base_dir / "mask_tiles", image_basename, index),
-                                     crop_mask.shape[0], crop_mask.shape[1], 1, gdal.GDT_Byte)
-        out_ds2.SetGeoTransform(
-            [xmin * geotrans[1] + geotrans[0], geotrans[1], 0, geotrans[3] - ymax * geotrans[1], 0, geotrans[5], ])
-        out_ds2.SetProjection(geoproj)
-        out_ds2.GetRasterBand(1).WriteArray(crop_mask[:, :, 0])
-
-        out_ds2.FlushCache()
-
-        del out_ds2
-=======
->>>>>>> new_features_2
 
 
 def split_raster(path_to_raster=None,
@@ -534,13 +458,6 @@ def split_raster(path_to_raster=None,
         raster_dtype = str(src.dtypes[0])
         nodata = src.nodata
 
-<<<<<<< HEAD
-    out_l, out_w, out_o1, out_t, out_o2, out_h = gdal.Open(str(path_to_raster)).GetGeoTransform()
-
-    if include_mask:
-        img_l, img_w, _, img_t, _, img_h = gdal.Open(str(path_to_raster)).GetGeoTransform()
-        msk_l, msk_w, _, msk_t, _, msk_h = gdal.Open(str(path_to_mask)).GetGeoTransform()
-=======
         img_l, img_w, _, img_t, _, img_h = gdal.Open(str(path_to_raster)).GetGeoTransform()
         width = src.width
         height = src.height
@@ -554,7 +471,6 @@ def split_raster(path_to_raster=None,
         mask_src = rasterio.open(path_to_mask)
         msk_l, msk_w, _, msk_t, _, msk_h = gdal.Open(str(path_to_mask)).GetGeoTransform()
 
->>>>>>> new_features_2
         img_w = np.around(img_w, decimals=3)
         img_h = np.around(img_h, decimals=3)
         msk_w = np.around(msk_w, decimals=3)
@@ -616,79 +532,6 @@ def split_raster(path_to_raster=None,
             msk_adj[:, 1] += np.array([mask_src.height, mask_src.width])
             msk_adj = msk_adj.astype(int)
 
-<<<<<<< HEAD
-            numpy_image = numpy_image[:, img_adj[0, 0]:img_adj[0, 1], img_adj[1, 0]:img_adj[1, 1]]
-            numpy_image_mask = numpy_image_mask[:, msk_adj[0, 0]:msk_adj[0, 1], msk_adj[1, 0]:msk_adj[1, 1]]
-
-            assert numpy_image.shape[1:] == numpy_image_mask.shape[1:], "Some issue with the adjustments"
-            print(f'Done! Adjusted images new size is {numpy_image.shape[1:]}.\n')
-
-        no_data_values = np.sum(numpy_image_mask[0, :, :] == nodata_mask)
-        no_data_percentage = round((no_data_values / len(numpy_image_mask[0].flatten())) * 100)
-        no_data_values_image = np.sum(numpy_image[0, :, :] == nodata)
-        no_data_percentage_image = round((no_data_values_image / len(numpy_image[0].flatten())) * 100)
-
-        if no_data_values:
-            print(
-                f'{no_data_values} no-data-pixels found in mask ({no_data_percentage}%), setting parts of image to 0.')
-        if no_data_values_image:
-            print(
-                f'{no_data_values_image} no-data-pixels found in image ({no_data_percentage_image}%), setting parts of mask to 0.')
-
-        # Create a boolean mask where any of the image or mask bands has a nodata value
-        nodata_mask = (numpy_image == nodata).any(axis=0) | (numpy_image_mask == nodata_mask).any(axis=0)
-
-        # Set each band of the image and mask to 0 where the mask is True
-        numpy_image[:, nodata_mask] = 0
-        numpy_image_mask[:, nodata_mask] = 0
-
-        numpy_image_mask2 = np.moveaxis(numpy_image_mask, 0, 2)
-
-    else:
-        # if no mask is included
-        # Create a boolean mask where any of the image bands has a nodata value
-        nodata_mask = (numpy_image == nodata).any(axis=0)
-
-        # Set each band of the image and mask to 0 where the mask is True
-        numpy_image[:, nodata_mask] = 0
-
-    numpy_image2 = np.moveaxis(numpy_image, 0, 2)
-
-    geotrans = (out_l, out_w, out_o1, out_t, out_o2, out_h)
-    geoproj = gdal.Open(str(path_to_raster)).GetProjection()
-
-    # Check if patch size is greater than image size
-    height = numpy_image2.shape[0]
-    width = numpy_image2.shape[1]
-
-    if any(np.array([height, width]) < patch_size):
-        raise ValueError("Patch size of {} is larger than the image dimensions {}".format(
-            patch_size, [height, width]))
-
-    # Compute sliding window index
-    windows = compute_windows(numpy_image2, patch_size, patch_overlap)
-
-    # Get image name for indexing
-    image_name = os.path.basename(path_to_raster)
-
-    for index, window in enumerate(windows):
-        # Crop image
-        crop = numpy_image2[windows[index].indices()]
-
-        if crop.size == 0:
-            continue
-        if np.sum(crop != 0) < np.prod(crop.shape) * (1 - max_empty):
-            continue
-
-        if include_mask:
-            crop_mask = numpy_image_mask2[windows[index].indices()]
-            # skip if empty crop
-            if crop_mask.size == 0:
-                continue
-            if np.sum(crop_mask != 0) < np.prod(crop_mask.shape) * (1 - max_empty):
-                continue
-=======
->>>>>>> new_features_2
         else:
             img_adj = np.array([[0, height], [0, width]])
             msk_adj = img_adj
