@@ -25,12 +25,6 @@ def load_fastai_model_flexible(model_uri):
     Load a FastAI model from a local path, MLflow run URI, or artifact URI.
 
     Parameters:
-<<<<<<< HEAD
-        model_uri (str):
-            - Local path: "/path/to/model.pkl"
-            - MLflow run artifact: "mlflow-artifacts:/<exp_id>/<run_id>/artifacts/<model.pkl>"
-            - Run ID style: "runs:/<run_id>/Beschirmung.pkl"
-=======
         model_uri (str or Path):
             - Local path: "/path/to/model.pkl"
             - MLflow run artifact: "mlflow-artifacts:/<exp_id>/<run_id>/artifacts/<model.pkl>"
