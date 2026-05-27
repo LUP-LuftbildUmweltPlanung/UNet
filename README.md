@@ -18,23 +18,6 @@ The repository contains all code necessary to preprocess large tif-images, run t
 * developed on Windows 10
 
 ### Installation
-<<<<<<< HEAD
-
-#### For Windows
-* clone the Stable UNet repository
-* `conda create --name UNet python==3.9.6`
-* `conda activate UNet`
-* `cd ../UNet/environment`
-* `pip install -r requirements.txt`
-
-#### For Linux
-* clone the Stable UNet repository
-* `conda create --name UNet python==3.9.6`
-* `conda activate UNet`
-* `pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html`
-* `cd ../UNet/environment`
-* `pip install -r requirements_Linux.txt`
-=======
 * The following setup was tested with Python 3.10.20, CUDA 12.8, PyTorch 2.8.0, and fastai 2.5.1.
 ### For Windows & Linux
 #### clone the Stable UNet repository
@@ -53,11 +36,8 @@ The repository contains all code necessary to preprocess large tif-images, run t
 #### Patch fastai for compatibility with newer PyTorch
 fastai 2.5.1 requires a small compatibility patch when used with PyTorch 2.8.0.
 * `python -c "import fastai, pathlib; p=pathlib.Path(fastai.__file__).parent/'callback'/'progress.py'; s=p.read_text(); old=\"self.pbar.comment = f'{self.smooth_loss:.4f}'\"; new=\"self.pbar.comment = f'{float(self.smooth_loss):.4f}'\"; p.write_text(s.replace(old,new)); print('patched:', p)"`
->>>>>>> new_features_2
-
 
 ### Executing program
-
 * set parameters and run in params_and_main.py
 *  `Note` : to run the script with Mlflow please ask me for **mlflow_config** file
 
