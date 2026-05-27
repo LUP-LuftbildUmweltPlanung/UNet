@@ -18,6 +18,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 * developed on Windows 10
 
 ### Installation
+<<<<<<< HEAD
 
 #### For Windows
 * clone the Stable UNet repository
@@ -33,6 +34,26 @@ The repository contains all code necessary to preprocess large tif-images, run t
 * `pip install torch==1.9.0+cu111 torchvision==0.10.0+cu111 torchaudio==0.9.0 -f https://download.pytorch.org/whl/torch_stable.html`
 * `cd ../UNet/environment`
 * `pip install -r requirements_Linux.txt`
+=======
+* The following setup was tested with Python 3.10.20, CUDA 12.8, PyTorch 2.8.0, and fastai 2.5.1.
+### For Windows & Linux
+#### clone the Stable UNet repository
+* `conda create -n UNet5090 python=3.10.20 -y`
+* `conda activate UNet5090`
+#### Install geospatial and scientific dependencies
+* `conda install -c conda-forge gdal=3.6.2 rasterio=1.4.3 fiona=1.10.1 geopandas=1.1.3 numpy=2.2.6 pandas=2.3.3 scipy=1.15.2 scikit-learn=1.7.2 matplotlib-base=3.10.8 -y`
+#### Install PyTorch with CUDA 12.8
+* `pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 --index-url https://download.pytorch.org/whl/cu128`
+#### Install project requirements
+* `cd ../UNet/environment`
+* `pip install -r requirements.txt`
+#### Install fastai and helper packages
+* `pip install fastai==2.5.1 --no-deps`
+* `pip install fastcore==1.3.29 fastdownload==0.0.5 fastprogress==1.0.5 spacy==3.8.14`
+#### Patch fastai for compatibility with newer PyTorch
+fastai 2.5.1 requires a small compatibility patch when used with PyTorch 2.8.0.
+* `python -c "import fastai, pathlib; p=pathlib.Path(fastai.__file__).parent/'callback'/'progress.py'; s=p.read_text(); old=\"self.pbar.comment = f'{self.smooth_loss:.4f}'\"; new=\"self.pbar.comment = f'{float(self.smooth_loss):.4f}'\"; p.write_text(s.replace(old,new)); print('patched:', p)"`
+>>>>>>> new_features_2
 
 
 ### Executing program

@@ -193,7 +193,6 @@ def check_and_fill(args, target_len):
             raise ValueError(f"Argument list at index {i} has {len(arg)} elements; expected {target_len}.")
     return args
 
-
 class SegmentationAlbumentationsTransform(ItemTransform):
     """Applies Albumentations augmentations to images and optionally masks.
 
@@ -203,8 +202,13 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         This transform expects input data in the form of tuples (image, mask).
         If only images are provided, it assumes no masks are present.
     """
+<<<<<<< HEAD
     def __init__(self, dtype, aug, n_transform_imgs=2, split_idx= 0, **kwargs):
 
+=======
+
+    def __init__(self, dtype, aug, n_transform_imgs=2, split_idx=0, exclude_height_from_color_aug =False, **kwargs):
+>>>>>>> new_features_2
         """
         Initializes the SegmentationAlbumentationsTransform.
 
@@ -217,6 +221,7 @@ class SegmentationAlbumentationsTransform(ItemTransform):
         self.n_transform_imgs = n_transform_imgs
         self.dtype = dtype
         self.split_idx = split_idx
+        self.exclude_height_from_color_aug  = exclude_height_from_color_aug
 
     def encodes(self, x):
         """
@@ -259,15 +264,28 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 # Permute the image dimensions from (C, H, W) to (H, W, C) for albumentations
                 img = img.permute(1, 2, 0)  # Now shape is [W, H, C]
 
+                # Separate RGB and nDom channels
+                if self.exclude_height_from_color_aug:
+                    print("Height data available, Aug just 4 classes")
+                    # Separate last band as height
+                    img_rgb = img[:, :, :-1]
+                    height_img = img[:, :, -1:]
+                else:
+                    # Use all bands for augmentation
+                    img_rgb = img
+                    height_img = None
+
                 # Ensure tensor is on CPU before converting to numpy array
-                img_np = img.cpu().numpy()
+                img_np = img_rgb.cpu().numpy()  # Only convert RGB channels to numpy
                 mask_np = mask.cpu().numpy() if mask.is_cuda else mask.numpy()
+
+                # Normalize image based on dtype
                 if self.dtype == 'int16':
                     img_np /= 65535
                 elif self.dtype == 'int8':
                     img_np /= 255
                 else:
-                    ValueError("The data_type should be int8 or int16, your data not valid")
+                    raise ValueError("The data_type should be int8 or int16, your data is not valid")
 
                 # Apply augmentation
                 aug = self.aug(image=img_np, mask=mask_np)
@@ -276,15 +294,29 @@ class SegmentationAlbumentationsTransform(ItemTransform):
                 aug['image'] *= 255
 
                 # After augmentation, transpose image back to [C, H, W]
-                img_aug = np.transpose(aug['image'], (2, 0, 1))
+                img_aug = np.transpose(aug['image'], (2, 0, 1))  # Shape: [C, H, W]
                 mask_aug = aug['mask']  # Assume mask needs no transposition if it's 2D
 
+                if height_img is not None:
+                    # Directly permute ndom_img (no need to convert to numpy and back)
+                    ndom_img = height_img.permute(2, 0, 1)  # Convert to [C, H, W] for nDom channel
+
+                    # Ensure both tensors are on the same device (GPU or CPU)
+                    img_aug_tensor = torch.from_numpy(img_aug).to(img.device)  # Move img_aug to the same device as img
+                    ndom_img_tensor = ndom_img.to(img.device)  # Move ndom_img to the same device as img
+
+                    # Now concatenate them on the same device
+                    final_img = torch.cat((img_aug_tensor, ndom_img_tensor),
+                                          dim=0)  # Combine RGB and nDom along the channel dimension
+                else:
+
+                    final_img = torch.from_numpy(img_aug).to(img.device)
+
                 # Convert augmented images and masks back to tensors and append to the transformed lists
-                transformed_images.append(TensorImage(torch.from_numpy(img_aug).to(img.device)))
+                transformed_images.append(TensorImage(final_img.to(img.device)))  # Ensure the device is correct
                 transformed_masks.append(TensorMask(torch.from_numpy(mask_aug).to(mask.device)))
 
         # Leave the first proportion of the batch unchanged
-
         for img, mask in zip(batch_img[int(n_transform - len(batch_img)):],
                              batch_mask[int(n_transform - len(batch_img)):]):
             if self.dtype == 'int16':
@@ -450,6 +482,7 @@ def get_image_metadata(path):
     --------
     - dict: Metadata dictionary with patch size, resolution, number of bands, and data type.
     """
+<<<<<<< HEAD
 
     # ✅ Find a sample image file in 'train' folder (assumed structure)
     image_files = glob.glob(str(path / r'trai\img_tiles\*.tif'))
@@ -461,6 +494,19 @@ def get_image_metadata(path):
     #  Open raster using GDAL
     img_ds = gdal.Open(sample_image, gdal.GA_ReadOnly)
 
+=======
+## new
+    # ✅ Find a sample image file in 'train' folder (assumed structure)
+    img_dir = path / "trai" / "img_tiles"
+    image_files = list(img_dir.glob("*.tif"))
+
+    if not image_files:
+        raise FileNotFoundError(f"No TIFF files found in {img_dir.resolve()}")
+
+    sample_image = image_files[0]
+    img_ds = gdal.Open(str(sample_image), gdal.GA_ReadOnly)
+## new
+>>>>>>> new_features_2
     #  Extract patch size (assuming square images)
     patch_size = img_ds.RasterXSize  # Assuming width = height
 
@@ -492,3 +538,7 @@ def backslash_to_forwardslash(input_path):
 
     return Path(corrected_path)
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> new_features_2

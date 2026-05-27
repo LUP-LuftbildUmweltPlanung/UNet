@@ -1,7 +1,40 @@
+import os
+import sys
+import types
+import time
+import pathlib
+import warnings
+
+import numpy as np
+import torch
+import mlflow
+import mlflow.pytorch
+import albumentations as A
+import cv2
+
+from torch.hub import load_state_dict_from_url
+from sqlalchemy import false
+from mlflow.tracking import MlflowClient
+
+# Compatibility patches for fastai==2.5.1 with newer numpy / torchvision / PyTorch
+if not hasattr(np, "int"):
+    np.int = int
+
+torchvision_models_utils = types.ModuleType("torchvision.models.utils")
+torchvision_models_utils.load_state_dict_from_url = load_state_dict_from_url
+sys.modules["torchvision.models.utils"] = torchvision_models_utils
+
+from fastai.data.load import _FakeLoader
+
+if not hasattr(_FakeLoader, "pin_memory_device"):
+    _FakeLoader.pin_memory_device = ""
+
+from create_tiles_train_predict_multi import mask_path
 from create_tiles_unet import split_raster
 from predict import save_predictions
 from train import train_func
 from utils import backslash_to_forwardslash
+<<<<<<< HEAD
 
 
 import os 
@@ -13,6 +46,8 @@ import torch
 import pathlib
 import warnings
 import albumentations as A
+=======
+>>>>>>> new_features_2
 
 from fastai.vision.models.xresnet import xresnet34, xresnet101, xresnet50, xresnet34_deep, xresnet18
 from fastai.vision.augment import Dihedral, Rotate, Brightness, Contrast, Saturation
@@ -49,76 +84,114 @@ mlflow.set_experiment(experiment_name)
 experiment = client.get_experiment(experiment_id)
 print(f" Experiment '{experiment_name}' Artifact Location: {experiment.artifact_location}")
 
+from mlflow_config import *
 
+# Set MLflow request configuration
+os.environ["MLFLOW_HTTP_REQUEST_TIMEOUT"] = "900"  # 15 minutes
+os.environ["MLFLOW_HTTP_REQUEST_MAX_RETRIES"] = "5"
 
+# Initialize Mlflow Client
+client = MlflowClient()
+
+# Define Experiment name
+experiment_name = "LUBI_V3_1"
+
+# check if experiment Exists
+experiment = client.get_experiment_by_name(experiment_name)
+
+# create new exp if not found
+if experiment is None:
+    print(f" Experiment '{experiment_name}' not found! Creating a new one...")
+    experiment_id = client.create_experiment(name=experiment_name)
+    print(f" Created new experiment: {experiment_name} (ID: {experiment_id})")
+else:
+    experiment_id = experiment.experiment_id
+    print(f" Using existing experiment: {experiment_name} (ID: {experiment_id})")
+
+# set the Active Experiment
+mlflow.set_experiment(experiment_name)
+
+# confirm Artifact Location:
+experiment = client.get_experiment(experiment_id)
+print(f" Experiment '{experiment_name}' Artifact Location: {experiment.artifact_location}")
+
+from train import CombinedLoss
 
 # PARAMETERS
-Create_tiles = True
+Create_tiles = False
 Train = False
-Predict = False
+Predict = True
 
 ######################################################
 #################### CREATE TILES ####################
 ######################################################
 
 # if using without mask, set mask_path = None
-image_path = r"PATH"
-mask_path = r"PATH"
-base_dir = r"PATH"
+image_path = "/home/ume/Shadi/Valid/Emden_2023.tif"
+# mask_path =  r'/home/ume/Shadi/UNet_tile/Essen_stadt_2018_LUBI_V3_Mask_clip_final_plan0_clip_clean.tif'
+mask_path = None
+base_dir = r'D:\UNet_branch\data'
 
 #for prediction patch_overlap = 0.2 to prevent edge artifacts and split = [1] to predict full image
-patch_size = 400
-patch_overlap = 0
-split = [0.8, 0.2]
-
-
+patch_size = 500
+patch_overlap = 0.2 #0
+split = [1]
 
 ############################################################
 #################### TRAINING ##############################
 ############################################################
 # If using created tiles, set data_path to base_dir.
 data_path = base_dir
-model_path = r"PATH" # The path where the model directories will be created.
-description = "Beschirmung_geo_Aug_data" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
-info = "RGB images" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
-existing_model = None #or existing model path for transfer_learning
+model_path = r"/home/ume/Shadi/UNet_2/UNet/models" # The path where the model directories will be created.
+description = "test" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
+info = "LUBI_V3_1_RGBI_nDOM_Focal_30" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
+existing_model = None # r"D:\Beschirmung_model\LUBI_data\UNet-Mlflow\models\best-model_2.pth" # r"H:\Shadi\train_data_LUBI_V2\UNet_data_5_classes\Model_path\LUBI_V2_lr0001_Focal_20cm_rgbi_nDSM_5_classes\LUBI_V2_lr0001_Focal_20cm_rgbi_nDSM_5_classes.pkl" #or existing model path for transfer_learning
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
-EPOCHS = 15
+EPOCHS = 10
 LEARNING_RATE = 0.0001
 enable_regression = False
 visualize_data_example = True
 export_model_summary = True
 # only relevant for classification
-CODES = ['NO_Data', 'Background', 'Beschirmung']
+CODES = ['NO_Data', 'Background', 'hohe_Vegetation', 'niedrige_Vegetation', 'Grassland', 'Invekos','Wasser', 'Gründach']
 # CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
+<<<<<<< HEAD
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 #CLASS_WEIGHTS = "weighted" #"weighted" #[0.01, 0.3, 0.69]
 #CLASS_WEIGHTS =[19, 4, 6, 35, 3, 38, 85, 5, 52, 123, 54]
 register_model=False
+=======
+CLASS_WEIGHTS = "even" # [0.0389341399065, 4.243373469531772, 3.1823014185075422, 33.125322411178416, 6.2696211385501375, 4.411929747739644, 32.296633816055866, 65.536323844474] # "even" , [0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
+register_model= False
+exclude_height_from_color_aug = True   # Apply color augmentations only to RGBI; keep nDom/height unchanged
+>>>>>>> new_features_2
 ########################################################
 #################### PREDICTION ########################
 ########################################################
-predict_path = r"PATH"
-predict_model = r"PATH"  # The path to the trained model that will be used to predict the image tiles. This path should be constructed as "model_path/description/description.pkl"
-AOI = "str" # Area of Interest (AOI). This parameter is used to append the output TIFF file to define the city of the prediction data.
-year = "str" # The year of the prediction data. To append the output TIFF file to define the year.
-merge = False # A boolean to decide whether to merge the output prediction tiles into a single file or keep them as separate tiles.
+predict_path = r'W:\VegetationCoverClassifier\Mainz_validation\Emden_2023\unet_500\img_tiles'
+predict_model = r"mlflow-artifacts:/8/970780c80bd0483c969d2bc73eee9cc4/artifacts/LUBI_V3_1_RGBI_nDOM_Focal_plan0_500_adjust_Invekos.pkl"  # The path to the trained model that will be used to predict the image tiles. This path should be constructed as "model_path/description/description.pkl"
+AOI = "Emden_500_new_env" # Area of Interest (AOI). This parameter is used to append the output TIFF file to define the city of the prediction data.
+year = "2023" # The year of the prediction data. To append the output TIFF file to define the year.
+TTA = True # Apply Test-Time Augmentation (flips and rotations) to improve prediction robustness
+merge = True # A boolean to decide whether to merge the output prediction tiles into a single file or keep them as separate tiles.
 regression = False
-validation_vision = True # Confusion matrix and classification report figures, Keep merge and regression False to work!
+validation_vision = False # Confusion matrix and classification report figures, Keep merge and regression False to work!
 # CONFIG END
 
 
 ############################################################
-#################### EXTRA PARAMTERS #######################
+#################### EXTRA PARAMETERS #######################
 ############################################################
 
 enable_extra_parameters = True  # only for experienced users
 
-self_attention = True
+self_attention = True # Identifies global context and improves overall understanding, use if global context is important
+attention_gates = True # Filter out irrelevant features in skip connections, use if an important class is underrepresented
+ENCODER_FACTOR  = False # Filter out irrelevant features in skip connections, use if an important class is underrepresented
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
-loss_func = CrossEntropyLossFlat(axis=1)  # FocalLossFlat(gamma=2, axis=1)
+loss_func = FocalLossFlat(gamma=1.5 , axis=1) # CombinedLoss(axis=1, smooth=1.0, alpha=1.0)  # CombinedLoss(axis=1, smooth=1.0, alpha=1.0) #
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
 monitor = 'valid_loss'  # 'dice_multi'  'r2_score'
@@ -127,16 +200,17 @@ monitor = 'valid_loss'  # 'dice_multi'  'r2_score'
 all_classes = False  # If all class predictions should be stored
 specific_class = None  # None or integer of class -> Only this class will be stored
 large_file = False  # If predicted probabilities should be stretched to int8 to increase storage capacity
-max_empty = 0.2  # Maximum no data area in created image crops
-class_zero = False  # Enable for seperating 0 prediction class from nodata
+max_empty = 0.99  # Maximum no data area in created image crops
+class_zero = True  # Enable for seperating 0 prediction class from nodata
 
 ARCHITECTURE = xresnet34  # xresnet34
 
 # Create an instance of the transforms
 transforms = True
-split_idx = 0 # Apply Augmentations for 0 = Train, 1 = Validation, None = Both, Hint: Apply None with "int16" data type
-n_transform_imgs = 1 # Percentage of augmented images [0-1]. Decimals always be rounded up.
+split_idx = None # Apply Augmentations for 0 = Train, 1 = Validation, None = Both, Hint: Apply None with "int16" data type
+n_transform_imgs = 0.9 # Percentage of augmented images [0-1]. Decimals always be rounded up.
 aug_pipe = A.Compose([
+<<<<<<< HEAD
     A.HorizontalFlip(p=0.5),  # Applies a horizontal flip to the image with a probability of 0.5.
     A.VerticalFlip(p=0.5),  # Applies a vertical flip to the image with a probability of 0.5.
     A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
@@ -145,6 +219,28 @@ aug_pipe = A.Compose([
         p=0.5
     ),
     A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
+=======
+    A.HorizontalFlip(p=0.8),  # Applies a horizontal flip to the image with a probability of 0.5.
+    A.VerticalFlip(p=0.8),  # Applies a vertical flip to the image with a probability of 0.5.
+    # A.Downscale(
+    #     scale_min=0.4,
+    #     scale_max=0.5,
+    #     interpolation={"downscale": cv2.INTER_NEAREST, "upscale": cv2.INTER_NEAREST},
+    #     p=0.5
+    # ),
+    # A.RGBShift(  # Shift RGB values randomly within specified limits for each channel.
+    #     r_shift_limit=20,
+    #     g_shift_limit=20,
+    #     b_shift_limit=20,
+    #     p=0.5
+    # ),
+   A.RandomBrightnessContrast(  # Randomly changes brightness and contrast of the image with a probability of 0.5.
+       brightness_limit=(-0.25, 0.25),
+       contrast_limit=(-0.25, 0.25),
+       p=0.5
+   )
+#    A.CoarseDropout(p=0.5),  # Randomly masks out rectangular regions in the image with a probability of 0.5.
+>>>>>>> new_features_2
 
 ])  # For more Augmentation options: https://github.com/albumentations-team/albumentations/tree/main#i-am-new-to-image-augmentation
 
@@ -163,7 +259,7 @@ predict_model = backslash_to_forwardslash(predict_model)
 def main():
     """Main function."""
 
-    global large_file, specific_class, all_classes, transforms, VALID_SCENES, self_attention, monitor, loss_func, LR_FINDER, ENCODER_FACTOR, ARCHITECTURE, enable_regression, max_empty
+    global large_file, specific_class, all_classes, transforms, VALID_SCENES, self_attention, monitor, loss_func, LR_FINDER, ENCODER_FACTOR, ARCHITECTURE, enable_regression, max_empty, attention_gates
 
     start_time = time.time()
 
@@ -185,6 +281,7 @@ def main():
         ARCHITECTURE = xresnet34
         transforms = transforms
         self_attention = False
+        attention_gates = False
 
     # Check if CUDA is available
     if torch.cuda.is_available():
@@ -211,11 +308,16 @@ def main():
                    ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                    VALID_SCENES,
                    CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
+<<<<<<< HEAD
                    class_zero, register_model)
+=======
+                   class_zero, register_model, attention_gates, exclude_height_from_color_aug)
+
+>>>>>>> new_features_2
 
     if Predict:
         save_predictions(predict_model, predict_path, regression, merge, all_classes, specific_class, large_file, AOI,
-                         year, validation_vision, class_zero=class_zero)
+                         year, validation_vision, class_zero=class_zero, TTA=TTA)
 
     end_time = time.time()
     print(f"The operation took {(end_time - start_time):.2f} seconds or {((end_time - start_time) / 60):.2f} minutes")
