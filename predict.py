@@ -293,7 +293,7 @@ def save_predictions(
 
         # ---------------- Large file detection ----------------
         total_pixels = sum([gdal.Open(t).RasterXSize * gdal.Open(t).RasterYSize for t in tiles])
-        threshold = 1e9  # example threshold in pixels, adjust as needed
+        threshold = 3e10 # example threshold in pixels, adjust as needed (10 billion pixels)
 
         if total_pixels > threshold:
             print("⚠️ Large file detected. Using tile-wise output. Merge set to False.")
@@ -362,75 +362,78 @@ def save_predictions(
         if validation_vision and not merge:
             plot_valid_predict(output_folder, predict_path, regression, merge, class_zero)
 
-        # ===================== MERGE =====================
+        # # ===================== MERGE =====================
+        # if not merge:
+        #     return
+
         if not merge:
-            return
-
-        geotrans_for_merge = np.array(geotrans_for_merge)
-
-        upleft_x_full = geotrans_for_merge[:, 0].min()
-        upleft_y_full = geotrans_for_merge[:, 3].max()
-
-        xmax = np.argmax(geotrans_for_merge[:, 0])
-        ymin = np.argmin(geotrans_for_merge[:, 3])
-
-        lowright_x_full = (
-            geotrans_for_merge[xmax, 0]
-            + geotrans_for_merge[xmax, 1] * geotrans_for_merge[xmax, 2]
-        )
-        lowright_y_full = (
-            geotrans_for_merge[ymin, 3]
-            + geotrans_for_merge[ymin, 4] * geotrans_for_merge[ymin, 5]
-        )
-
-        xres = geotrans_for_merge[0, 2]
-        yres = geotrans_for_merge[0, 5]
-
-        x_length = int(round((lowright_x_full - upleft_x_full) / xres))
-        y_length = int(round((lowright_y_full - upleft_y_full) / yres))
-
-        # ---------- MAJORITY VOTE buffers ----------
-        n_classes = int(max(np.max(t[0]) for t in label_tiles) + 1)
-
-        vote_stack = np.zeros((n_classes, y_length, x_length), dtype=np.uint16)
-
-        for label_arr, gt in tqdm(label_tiles, desc="Merging tiles"):
-            ulx, xres, _, uly, _, yres = gt
-
-            x0 = int(round((ulx - upleft_x_full) / xres))
-            y0 = int(round((uly - upleft_y_full) / yres))
-            h, w = label_arr.shape
-
-            for cls in np.unique(label_arr):
-                mask = (label_arr == cls)
-                vote_stack[cls, y0:y0+h, x0:x0+w][mask] += 1
-
-        merged_raster = np.argmax(vote_stack, axis=0).astype(np.uint8)
-
-        output_name = "_".join(filter(None, [AOI, year, model_name, "prediction"])) + ".tif"
-        output_file = output_folder / output_name
-
-        store_tif(
-            output_file,
-            merged_raster,
-            gdal.GDT_Byte,
-            [upleft_x_full, xres, 0.0, upleft_y_full, 0.0, yres],
-            geoproj_for_merge,
-            None,
-            class_zero
-        )
-
-        print(f"Prediction stored in {output_file}")
-
-        # ---------------- Merge large file tiles safely ----------------
-        if not merge and total_pixels > threshold:
+            # Large file: use windowed merge
+            print(f"DEBUG: merge={merge}, total_pixels={total_pixels}, threshold={threshold}")
             merged_output_file = output_folder.parent / f"{Path(predict_model).stem}_merged_large.tif"
-            print(f"🔹 Large file: merging tiles windowed into {merged_output_file} ...")
+            print(f"🔹 Large file detected: merging tiles windowed into {merged_output_file} ...")
             merge_label_tiles_windowed(
                 tiles_folder=output_folder,
                 output_file=merged_output_file,
-                window_px=4096,
+                window_px=4096,  # adjust based on memory
                 recursive=False,
                 show_progress=True
             )
             print(f"✅ Windowed merge finished: {merged_output_file}")
+        else:
+            geotrans_for_merge = np.array(geotrans_for_merge)
+
+            upleft_x_full = geotrans_for_merge[:, 0].min()
+            upleft_y_full = geotrans_for_merge[:, 3].max()
+
+            xmax = np.argmax(geotrans_for_merge[:, 0])
+            ymin = np.argmin(geotrans_for_merge[:, 3])
+
+            lowright_x_full = (
+                geotrans_for_merge[xmax, 0]
+                + geotrans_for_merge[xmax, 1] * geotrans_for_merge[xmax, 2]
+            )
+            lowright_y_full = (
+                geotrans_for_merge[ymin, 3]
+                + geotrans_for_merge[ymin, 4] * geotrans_for_merge[ymin, 5]
+            )
+
+            xres = geotrans_for_merge[0, 2]
+            yres = geotrans_for_merge[0, 5]
+
+            x_length = int(round((lowright_x_full - upleft_x_full) / xres))
+            y_length = int(round((lowright_y_full - upleft_y_full) / yres))
+
+            # ---------- MAJORITY VOTE buffers ----------
+            n_classes = int(max(np.max(t[0]) for t in label_tiles) + 1)
+
+            vote_stack = np.zeros((n_classes, y_length, x_length), dtype=np.uint16)
+
+            for label_arr, gt in tqdm(label_tiles, desc="Merging tiles"):
+                ulx, xres, _, uly, _, yres = gt
+
+                x0 = int(round((ulx - upleft_x_full) / xres))
+                y0 = int(round((uly - upleft_y_full) / yres))
+                h, w = label_arr.shape
+
+                for cls in np.unique(label_arr):
+                    mask = (label_arr == cls)
+                    vote_stack[cls, y0:y0+h, x0:x0+w][mask] += 1
+
+            merged_raster = np.argmax(vote_stack, axis=0).astype(np.uint8)
+
+            output_name = "_".join(filter(None, [AOI, year, model_name, "prediction"])) + ".tif"
+            output_file = output_folder / output_name
+
+            store_tif(
+                output_file,
+                merged_raster,
+                gdal.GDT_Byte,
+                [upleft_x_full, xres, 0.0, upleft_y_full, 0.0, yres],
+                geoproj_for_merge,
+                None,
+                class_zero
+            )
+
+            print(f"Prediction stored in {output_file}")
+
+
