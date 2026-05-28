@@ -24,7 +24,7 @@ The repository contains all code necessary to preprocess large tif-images, run t
 * `conda create -n UNet5090 python=3.10.20 -y`
 * `conda activate UNet5090`
 #### Install geospatial and scientific dependencies
-* `conda install -c conda-forge gdal=3.6.2 rasterio=1.4.3 fiona=1.10.1 geopandas=1.1.3 numpy=2.2.6 pandas=2.3.3 scipy=1.15.2 scikit-learn=1.7.2 matplotlib-base=3.10.8 -y`
+* `conda install -c conda-forge gdal=3.10.3 rasterio=1.4.3 fiona=1.10.1 geopandas=1.1.3 numpy=2.2.6 pandas=2.3.3 scipy=1.15.2 scikit-learn=1.7.2 matplotlib-base=3.10.9 -y`
 #### Install PyTorch with CUDA 12.8
 * `pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 --index-url https://download.pytorch.org/whl/cu128`
 #### Install project requirements
