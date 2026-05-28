@@ -558,8 +558,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                            path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
                            regression=enable_regression, loss_func=loss_func, monitor=monitor,
                            existing_model=existing_model, self_attention=self_attention,
-                           export_model_summary=export_model_summary, attention_gates=attention_gates,
-                           exclude_height_from_color_aug= exclude_height_from_color_aug)
+                           export_model_summary=export_model_summary, attention_gates=attention_gates)
         
 
         # Call `log_metrics_mlflow()` to log metrics to MLflow
