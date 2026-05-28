@@ -411,7 +411,7 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
 def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, visualize_data_example,enable_regression, CLASS_WEIGHTS,
                 ARCHITECTURE, EPOCHS, LEARNING_RATE, ENCODER_FACTOR, LR_FINDER, loss_func, monitor, self_attention,
                VALID_SCENES, CODES, transforms, split_idx, export_model_summary, aug_pipe, n_transform_imgs, info,
-               class_zero, register_model, attention_gates):
+               class_zero, register_model, attention_gates, exclude_height_from_color_aug= False):
     try:
         pc_name = socket.gethostname()
         #  Check if an MLflow run
@@ -436,7 +436,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                 n_transform = math.ceil(BATCH_SIZE * n_transform_imgs)
                 print(f"Applying Augmentation on ({n_transform}) images from ({BATCH_SIZE}) images")
                 # Use the imported aug_pipe
-                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx)
+                transforms = SegmentationAlbumentationsTransform(dtype, aug_pipe, n_transform_imgs=n_transform_imgs, split_idx= split_idx, exclude_height_from_color_aug= exclude_height_from_color_aug)
             else:
                 # Define a default augmentation pipeline
                 aug_pipe = A.Compose([
@@ -461,7 +461,7 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                                     loss_func=loss_func, self_attention=self_attention, monitor=monitor,
                                     VALID_SCENES=VALID_SCENES,
                                     ARCHITECTURE=ARCHITECTURE, CODES=CODES, n_transform_imgs=n_transform_imgs, info=info,
-                                    class_zero=class_zero, attention_gates=attention_gates)
+                                    class_zero=class_zero, attention_gates=attention_gates, exclude_height_from_color_aug= exclude_height_from_color_aug)
             # Structure the parameters dictionary like the JSON file
             params_dict = {
                 "data_path": str(data_path),
@@ -488,7 +488,8 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                 "number_of_bands": str(number_of_bands),
                 "aug_params_": str(aug_pipe),
                 "Percentage of augmented images": n_transform_imgs,
-                "class_zero": class_zero
+                "class_zero": class_zero,
+                "exclude_height_from_color_aug": exclude_height_from_color_aug
             }
             mlflow.log_params(params_dict)
 
@@ -557,7 +558,9 @@ def train_func(data_path, existing_model, model_Path, description, BATCH_SIZE, v
                            path=model_path, lr=LEARNING_RATE, encoder_factor=ENCODER_FACTOR, lr_finder=LR_FINDER,
                            regression=enable_regression, loss_func=loss_func, monitor=monitor,
                            existing_model=existing_model, self_attention=self_attention,
-                           export_model_summary=export_model_summary, attention_gates=attention_gates)
+                           export_model_summary=export_model_summary, attention_gates=attention_gates,
+                           exclude_height_from_color_aug= exclude_height_from_color_aug)
+        
 
         # Call `log_metrics_mlflow()` to log metrics to MLflow
         hist_path = Path(str(model_path).rsplit('.', 1)[0] + "_history.csv")
