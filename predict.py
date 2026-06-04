@@ -293,7 +293,7 @@ def save_predictions(
 
         # ---------------- Large file detection ----------------
         total_pixels = sum([gdal.Open(t).RasterXSize * gdal.Open(t).RasterYSize for t in tiles])
-        threshold = 3e10 # example threshold in pixels, adjust as needed (10 billion pixels)
+        threshold = 3e9 # example threshold in pixels, adjust as needed (10 billion pixels)
 
         if total_pixels > threshold:
             print("⚠️ Large file detected. Using tile-wise output. Merge set to False.")
