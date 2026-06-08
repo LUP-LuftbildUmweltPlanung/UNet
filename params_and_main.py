@@ -78,7 +78,7 @@ Predict = True
 ######################################################
 
 # if using without mask, set mask_path = None
-image_path = "Path/to/ratser.tif"
+image_path = "Path/to/image.tif"
 mask_path =  r'Path/to/mask.tif'
 base_dir = r'output/folder'
 
