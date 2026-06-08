@@ -103,7 +103,7 @@ enable_regression = False
 visualize_data_example = True
 export_model_summary = True
 # only relevant for classification
-CODES = ['NO_Data', 'Background', 'hohe_Vegetation', 'niedrige_Vegetation', 'Grassland', 'Invekos','Wasser','Gründach']
+CODES = ['NO_Data', 'Background', 'Class1', 'Class2', 'Class3']
 # CODES = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']
 CLASS_WEIGHTS = "even" #[0.0001, 1, 1, 10, 10] #"weighted"  # list (e.g. [3, 2, 5]) or string ("even" or "weighted")
 register_model=False
