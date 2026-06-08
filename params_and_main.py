@@ -130,7 +130,6 @@ enable_extra_parameters = True  # only for experienced users
 
 self_attention = True # Identifies global context and improves overall understanding, use if global context is important
 attention_gates = True # Filter out irrelevant features in skip connections, use if an important class is underrepresented
-ENCODER_FACTOR  = False # Filter out irrelevant features in skip connections, use if an important class is underrepresented
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
