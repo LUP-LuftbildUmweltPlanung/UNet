@@ -431,8 +431,8 @@ def split_raster(path_to_raster=None,
 
     Parameters:
     -----------
-        path_to_raster: Path to a image tile that can be read by rasterio on disk
-        path_to_mask: Path to a corresponding mask tile that can be read by rasterio on disk
+        path_to_raster: Path to an image that can be read by rasterio on disk
+        path_to_mask: Path to a corresponding mask that can be read by rasterio on disk
         base_dir : Where to save the annotations and image crops
         patch_size: Maximum dimensions of square window
         patch_overlap: Percent of overlap among windows 0->1
