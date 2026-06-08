@@ -360,17 +360,10 @@ def train_unet(class_weights, dls, architecture, epochs, path, lr, encoder_facto
         print(f'Optimized learning rate: {lr}')
 
     learn.unfreeze()
-    if existing_model is None:
-        learn.fit_one_cycle(
-            epochs,
-            lr_max=slice(lr / encoder_factor, lr)
-        )
-    else:
-        learn.fit_one_cycle(
-            epochs - 5,
-            lr_max=slice(lr / encoder_factor, lr)
-        )
-
+    learn.fit_one_cycle(
+        epochs,
+        lr_max=slice(lr / encoder_factor, lr)
+    )
     # plot loss
     learn.recorder.plot_loss()
     # move history
