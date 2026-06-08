@@ -39,7 +39,7 @@ fastai 2.5.1 requires a small compatibility patch when used with PyTorch 2.8.0.
 
 ### Executing program
 * set parameters and run in params_and_main.py
-*  `Note` : to run the script with Mlflow please ask me for **mlflow_config** file
+*  `Note` :  to run the script with Mlflow you need to adjust the mlflow_config file.
 
 ## Help/Known Issues
 
