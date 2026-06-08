@@ -93,7 +93,7 @@ split = [1]
 # If using created tiles, set data_path to base_dir.
 data_path = base_dir
 model_path = r"path/to/models" # The path where the model directories will be created.
-description = "RGBI+nDOM" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
+description = "task_inputdata_variant" # A description of the model folder, typically formatted as "response_specific_use_case". # Example: "canopycover_augmentationtest".
 info = "some info about the model" # Additional information about the model, such as necessary input features (e.g., RGBI) and other relevant details.
 existing_model = None # r"D:\Beschirmung_model\LUBI_data\UNet-Mlflow\models\best-model_2.pth" # r"H:\Shadi\train_data_LUBI_V2\UNet_data_5_classes\Model_path\LUBI_V2_lr0001_Focal_20cm_rgbi_nDSM_5_classes\LUBI_V2_lr0001_Focal_20cm_rgbi_nDSM_5_classes.pkl" #or existing model path for transfer_learning
 BATCH_SIZE = 4  # 3 for xresnet50, 12 for xresnet34 with Tesla P100 (16GB)
