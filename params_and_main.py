@@ -133,7 +133,7 @@ attention_gates = True # Filter out irrelevant features in skip connections, use
 ENCODER_FACTOR = 10  # minimal lr_rate factor
 LR_FINDER = None  # None, "minimum", "steep", "valley", "slide"
 VALID_SCENES = ['vali']
-loss_func = FocalLossFlat(gamma=1.5 , axis=1) # CombinedLoss(axis=1, smooth=1.0, alpha=1.0)  # CombinedLoss(axis=1, smooth=1.0, alpha=1.0) #
+loss_func = FocalLossFlat(gamma=1.5 , axis=1) # CombinedLoss(axis=1, smooth=1.0, alpha=1.0)
 # Regression: MSELossFlat(axis=1), L1LossFlat(axis=-1)
 # Classification: CrossEntropyLossFlat(axis=1), FocalLossFlat(gamma=0.5, axis=1)
 monitor = 'valid_loss'  # 'dice_multi'  'r2_score'
